@@ -14,6 +14,7 @@
 ## 功能
 
 - **桌面卡片**：扫描本机应用，自己选择要启动的云游戏；点桌面卡片直接打开该应用，同时出现「开启」悬浮球，点球授权录屏后开始识别。
+- **卡片可缩放**：长按桌面卡片拖动边缘即可改大小，会按尺寸自动切换紧凑 / 标准 / 加高布局。
 - **极简首页**：只放「开始监测」、识别方式开关、提醒方式三选一；权限、音乐、阈值、主题色、关于都在「更多设置」二级页。
 - **悬浮倒计时球**：60dp 渐变圆球，实时显示距下次截图的秒数；点一下展开面板（截图 / 暂停 / 停止 / 收起），可拖动到任意位置。
 - **自定义主题色**：应用内有一枚 HSV 色球，拖动选色后悬浮球、按钮、通知会实时跟着变（图标保持渐变云朵）。
@@ -50,7 +51,7 @@
 
 ## 安装
 
-1. 打开 [Releases](https://github.com/lishaoming314/cloudgame-assistant/releases)，下载最新的 `CloudGameAssistant-2.2.0.apk`（约 11 MB）。
+1. 打开 [Releases](https://github.com/lishaoming314/cloudgame-assistant/releases)，下载最新的 `CloudGameAssistant-2.2.1.apk`（约 11 MB）。
 2. 允许「安装未知来源应用」后安装。
 3. 首次打开按应用内提示逐项授权。
 
@@ -92,7 +93,7 @@
 
 ```bash
 ./build.sh
-# 产物：build/CloudGameAssistant-2.2.0.apk（约 11 MB，已签名）
+# 产物：build/CloudGameAssistant-2.2.1.apk（约 11 MB，已签名）
 ```
 
 OCR 依赖由 `fetch-ocr.sh` 自动下载；也可以手动执行：

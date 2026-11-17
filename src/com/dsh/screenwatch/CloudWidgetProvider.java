@@ -1,6 +1,7 @@
 package com.dsh.screenwatch;
 
 import android.app.PendingIntent;
+import android.os.Bundle;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
@@ -18,20 +19,33 @@ public class CloudWidgetProvider extends AppWidgetProvider {
     @Override
     public void onUpdate(Context context, AppWidgetManager manager, int[] appWidgetIds) {
         for (int id : appWidgetIds) {
-            update(context, manager, id);
+            update(context, manager, id, null);
         }
+    }
+
+    @Override
+    public void onAppWidgetOptionsChanged(Context context, AppWidgetManager manager,
+                                         int appWidgetId, Bundle newOptions) {
+        update(context, manager, appWidgetId, newOptions);
     }
 
     static void updateAll(Context context) {
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
         ComponentName provider = new ComponentName(context, CloudWidgetProvider.class);
         for (int id : manager.getAppWidgetIds(provider)) {
-            update(context, manager, id);
+            update(context, manager, id, null);
         }
     }
 
-    static void update(Context context, AppWidgetManager manager, int widgetId) {
-        RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_cloud);
+    static void update(Context context, AppWidgetManager manager, int widgetId, Bundle options) {
+        if (options == null) {
+            options = manager.getAppWidgetOptions(widgetId);
+        }
+        int minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 180);
+        int minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 70);
+        boolean compact = minWidth < 150 || minHeight < 56;
+        RemoteViews views = new RemoteViews(context.getPackageName(),
+                compact ? R.layout.widget_cloud_compact : R.layout.widget_cloud);
         SharedPreferences p = context.getSharedPreferences(ScreenWatchService.PREF, Context.MODE_PRIVATE);
         String pkg = p.getString("cloud_app_package", null);
         String label = p.getString("cloud_app_label", null);
@@ -54,10 +68,14 @@ public class CloudWidgetProvider extends AppWidgetProvider {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         views.setOnClickPendingIntent(R.id.widget_root, launch);
 
-        PendingIntent pick = PendingIntent.getActivity(context, 2,
-                new Intent(context, AppPickerActivity.class),
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        views.setOnClickPendingIntent(R.id.widget_change, pick);
+        if (!compact) {
+            views.setViewVisibility(R.id.widget_hint, minHeight >= 96
+                    ? android.view.View.VISIBLE : android.view.View.GONE);
+            PendingIntent pick = PendingIntent.getActivity(context, 2,
+                    new Intent(context, AppPickerActivity.class),
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            views.setOnClickPendingIntent(R.id.widget_change, pick);
+        }
 
         manager.updateAppWidget(widgetId, views);
     }

@@ -343,7 +343,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
         pwl.topMargin = dp(6);
         widgetCard.addView(pinWidget, pwl);
-        TextView widgetTip = text("桌面卡片点按会启动选中的应用，并出现「开启」悬浮球；点球授权录屏后开始识别。", 12, MUTED, Typeface.NORMAL);
+        TextView widgetTip = text("长按桌面卡片拖动边框可改大小；点按会启动选中的应用，并出现「开启」悬浮球。", 12, MUTED, Typeface.NORMAL);
         widgetTip.setPadding(0, dp(6), 0, dp(4));
         widgetCard.addView(widgetTip);
         root.addView(widgetCard);
@@ -542,7 +542,7 @@ public class MainActivity extends Activity {
         // ---- about / author
         LinearLayout about = card();
         about.addView(sectionTitle("关于"));
-        TextView ver = text("云游戏助手 v2.2.0 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
+        TextView ver = text("云游戏助手 v2.2.1 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
         ver.setPadding(0, dp(4), 0, dp(8));
         about.addView(ver);
         Button bili = new Button(this);
