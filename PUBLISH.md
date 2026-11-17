@@ -38,8 +38,8 @@ GH_TOKEN=ghp_xxx python3 publish.py
 
 ```
 ✅ 发布完成
-仓库   : https://github.com/<你的用户名>/screenwatch-android
-Release: https://github.com/<你的用户名>/screenwatch-android/releases/tag/v1.0.0
+仓库   : https://github.com/<你的用户名>/cloudgame-assistant
+Release: https://github.com/<你的用户名>/cloudgame-assistant/releases/tag/v2.1.0
 ```
 
 ## 4. 收尾

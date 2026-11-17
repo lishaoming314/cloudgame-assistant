@@ -2,8 +2,8 @@
 
 > 盯着云游戏的排队画面：用**像素对比**和/或**离线 OCR 文字对比**判断是否排到队、进入游戏，变化够大就播放本地音乐提醒，响铃 3 分钟后停止。悬浮球实时显示下次截图倒计时。
 
-[![Release](https://img.shields.io/github/v/release/lishaoming314/screenwatch-android?display_name=tag&sort=semver)](https://github.com/lishaoming314/screenwatch-android/releases)
-[![License](https://img.shields.io/github/license/lishaoming314/screenwatch-android)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/lishaoming314/cloudgame-assistant?display_name=tag&sort=semver)](https://github.com/lishaoming314/cloudgame-assistant/releases)
+[![License](https://img.shields.io/github/license/lishaoming314/cloudgame-assistant)](LICENSE)
 ![minSdk](https://img.shields.io/badge/minSdk-26-blue)
 ![targetSdk](https://img.shields.io/badge/targetSdk-29-blue)
 
@@ -45,7 +45,7 @@
 
 ## 安装
 
-1. 打开 [Releases](https://github.com/lishaoming314/screenwatch-android/releases)，下载最新的 `CloudGameAssistant-2.1.apk`（约 11 MB）。
+1. 打开 [Releases](https://github.com/lishaoming314/cloudgame-assistant/releases)，下载最新的 `CloudGameAssistant-2.1.apk`（约 11 MB）。
 2. 允许「安装未知来源应用」后安装。
 3. 首次打开按应用内提示逐项授权。
 

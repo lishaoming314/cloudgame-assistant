@@ -28,7 +28,7 @@ import urllib.request
 API = "https://api.github.com"
 UPLOAD = "https://uploads.github.com"
 UA = "screenwatch-publisher/1.0"
-DEFAULT_REPO = "screenwatch-android"
+DEFAULT_REPO = "cloudgame-assistant"
 DEFAULT_TAG = "v2.1.0"
 SKIP_DIRS = {".git", "build", "tools", "keystore", ".idea", ".gradle"}
 SKIP_EXT = {".apk", ".zip", ".keystore"}
