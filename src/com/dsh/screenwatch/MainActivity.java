@@ -28,7 +28,9 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.CompoundButton;
 import android.widget.SeekBar;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -36,6 +38,7 @@ import java.util.Locale;
 
 public class MainActivity extends Activity {
 
+    private static final String BILI_SPACE = "https://space.bilibili.com/1416380260";
     private static final int REQ_CAPTURE = 1001;
     private static final int REQ_MUSIC = 1002;
     private static final int REQ_NOTIF = 1003;
@@ -56,7 +59,15 @@ public class MainActivity extends Activity {
     private Button startBtn, auditionBtn;
     private SeekBar thresholdBar, intervalBar;
     private int threshold = 15;
-    private int intervalMin = 1;
+    private int intervalSec = 60;
+    private boolean autoStop = true;
+    private Switch autoStopSwitch, pixelSwitch, ocrSwitch, bothSwitch;
+    private SeekBar ocrBar;
+    private TextView ocrLabel;
+    private boolean usePixel = true;
+    private boolean useOcr = false;
+    private boolean requireBoth = true;
+    private int ocrThreshold = 30;
 
     private MediaPlayer audition;
     private BroadcastReceiver statsReceiver;
@@ -66,7 +77,12 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences(ScreenWatchService.PREF, MODE_PRIVATE);
         threshold = Math.max(5, Math.min(50, prefs.getInt(ScreenWatchService.KEY_THRESHOLD, 15)));
-        intervalMin = Math.max(1, Math.min(10, prefs.getInt(ScreenWatchService.KEY_INTERVAL, 1)));
+        intervalSec = Math.max(5, Math.min(3600, prefs.getInt(ScreenWatchService.KEY_INTERVAL, 60)));
+        autoStop = prefs.getBoolean("auto_stop", true);
+        usePixel = prefs.getBoolean("use_pixel", true);
+        useOcr = prefs.getBoolean("use_ocr", false);
+        requireBoth = prefs.getBoolean("require_both", true);
+        ocrThreshold = Math.max(10, Math.min(90, prefs.getInt("ocr_threshold", 30)));
         setContentView(buildUi());
     }
 
@@ -81,15 +97,18 @@ public class MainActivity extends Activity {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     float ratio = intent.getFloatExtra(ScreenWatchService.EXTRA_RATIO, 0f);
+                    float textRatio = intent.getFloatExtra(ScreenWatchService.EXTRA_TEXT_RATIO, 0f);
                     boolean ringing = intent.getBooleanExtra(ScreenWatchService.EXTRA_RINGING, false);
                     boolean paused = intent.getBooleanExtra(ScreenWatchService.EXTRA_PAUSED, false);
                     String status = intent.getStringExtra(ScreenWatchService.EXTRA_STATUS);
-                    ratioLine.setText(String.format(Locale.US, "最近变化：%.1f%%（阈值 %d%%）", ratio, threshold));
+                    ratioLine.setText(useOcr
+                            ? String.format(Locale.US, "上次变化：像素 %.1f%% · 文字 %.0f%%", ratio, textRatio)
+                            : String.format(Locale.US, "上次变化：%.1f%%（阈值 %d%%）", ratio, threshold));
                     if (status != null) {
                         statusLine.setText(status);
                     }
-                    runLine.setText(ringing ? "状态：正在响铃" : paused ? "状态：已暂停" : "状态：监控中");
-                    startBtn.setText(ScreenWatchService.isRunning() ? "停止监控" : "开始监控");
+                    runLine.setText(ringing ? "状态：正在响铃" : paused ? "状态：已暂停" : "状态：排队监测中");
+                    startBtn.setText(ScreenWatchService.isRunning() ? "停止监测" : "开始监测");
                     styleStartButton(ScreenWatchService.isRunning());
                 }
             };
@@ -128,17 +147,17 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView title = text("盯屏提醒", 24, TEXT, Typeface.BOLD);
+        TextView title = text("云游戏助手", 24, TEXT, Typeface.BOLD);
         root.addView(title);
 
-        TextView sub = text("每分钟截一次屏，与上一分钟对比像素变化；超过阈值就播放你选的本地音乐，响铃 3 分钟后自动停止。", 13, MUTED, Typeface.NORMAL);
+        TextView sub = text("盯住云游戏排队画面：按像素和/或 OCR 文字判断是否排到队、进入游戏，变化够大就播放本地音乐，响铃 3 分钟后停止。", 13, MUTED, Typeface.NORMAL);
         sub.setPadding(0, dp(6), 0, dp(16));
         root.addView(sub);
 
         // ---- permissions
         LinearLayout perm = card();
         perm.addView(sectionTitle("权限与后台运行"));
-        overlayState = addCheckRow(perm, "悬浮窗权限", "在其它应用上显示监控卡片",
+        overlayState = addCheckRow(perm, "悬浮窗权限", "在其它应用上显示倒计时悬浮球",
                 v -> openOverlaySettings());
         batteryState = addCheckRow(perm, "电池优化豁免", "不被系统杀后台（Android 10 必需）",
                 v -> openBatterySettings());
@@ -173,7 +192,7 @@ public class MainActivity extends Activity {
 
         // ---- parameters
         LinearLayout params = card();
-        params.addView(sectionTitle("对比参数"));
+        params.addView(sectionTitle("监测参数"));
         thresholdLabel = text("变化阈值：15%", 14, TEXT, Typeface.BOLD);
         thresholdLabel.setPadding(0, dp(6), 0, 0);
         params.addView(thresholdLabel);
@@ -198,18 +217,19 @@ public class MainActivity extends Activity {
         });
         params.addView(thresholdBar);
 
-        intervalLabel = text("截图间隔：1 分钟", 14, TEXT, Typeface.BOLD);
+        intervalLabel = text("截图间隔：" + formatInterval(intervalSec), 14, TEXT, Typeface.BOLD);
         intervalLabel.setPadding(0, dp(10), 0, 0);
         params.addView(intervalLabel);
         intervalBar = new SeekBar(this);
-        intervalBar.setMax(9);
-        intervalBar.setProgress(Math.max(0, intervalMin - 1));
+        // 5 秒 ~ 600 秒，步长 5 秒
+        intervalBar.setMax((600 - 5) / 5);
+        intervalBar.setProgress(Math.max(0, (intervalSec - 5) / 5));
         intervalBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                intervalMin = 1 + progress;
-                intervalLabel.setText("截图间隔：" + intervalMin + " 分钟");
-                prefs.edit().putInt(ScreenWatchService.KEY_INTERVAL, intervalMin).apply();
+                intervalSec = 5 + progress * 5;
+                intervalLabel.setText("截图间隔：" + formatInterval(intervalSec));
+                prefs.edit().putInt(ScreenWatchService.KEY_INTERVAL, intervalSec).apply();
             }
 
             @Override
@@ -221,14 +241,73 @@ public class MainActivity extends Activity {
             }
         });
         params.addView(intervalBar);
-        TextView tip = text("每张截图只保留最近两张：上一分钟 / 当前这一分钟（缓存目录 snapshots/prev.jpg、cur.jpg）。", 12, MUTED, Typeface.NORMAL);
+
+        LinearLayout autoRow = new LinearLayout(this);
+        autoRow.setOrientation(LinearLayout.HORIZONTAL);
+        autoRow.setGravity(Gravity.CENTER_VERTICAL);
+        autoRow.setPadding(0, dp(10), 0, 0);
+        TextView autoLabel = text("提醒后自动停止监测", 14, TEXT, Typeface.BOLD);
+        autoRow.addView(autoLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        autoStopSwitch = new Switch(this);
+        autoStopSwitch.setChecked(autoStop);
+        autoStopSwitch.setOnCheckedChangeListener((b, checked) -> {
+            autoStop = checked;
+            prefs.edit().putBoolean("auto_stop", checked).apply();
+        });
+        autoRow.addView(autoStopSwitch);
+        params.addView(autoRow);
+        TextView tip = text("只保留最近两张截图：上一张 / 当前这张（缓存 snapshots/prev.jpg、cur.jpg）。间隔越短越灵敏，也更耗电。", 12, MUTED, Typeface.NORMAL);
         tip.setPadding(0, dp(8), 0, 0);
         params.addView(tip);
         root.addView(params);
 
+        // ---- recognition modes
+        LinearLayout recog = card();
+        recog.addView(sectionTitle("识别方式（可单独或同时开启）"));
+        pixelSwitch = addSwitchRow(recog, "像素变化识别", usePixel, (b, checked) -> {
+            usePixel = checked;
+            prefs.edit().putBoolean("use_pixel", checked).apply();
+        });
+        ocrSwitch = addSwitchRow(recog, "OCR 文字变化识别（离线）", useOcr, (b, checked) -> {
+            useOcr = checked;
+            prefs.edit().putBoolean("use_ocr", checked).apply();
+        });
+        bothSwitch = addSwitchRow(recog, "两个都开时：需同时满足", requireBoth, (b, checked) -> {
+            requireBoth = checked;
+            prefs.edit().putBoolean("require_both", checked).apply();
+        });
+
+        ocrLabel = text("文字变化阈值：" + ocrThreshold + "%", 14, TEXT, Typeface.BOLD);
+        ocrLabel.setPadding(0, dp(10), 0, 0);
+        recog.addView(ocrLabel);
+        ocrBar = new SeekBar(this);
+        ocrBar.setMax((90 - 10) / 5);
+        ocrBar.setProgress(Math.max(0, (ocrThreshold - 10) / 5));
+        ocrBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                ocrThreshold = 10 + progress * 5;
+                ocrLabel.setText("文字变化阈值：" + ocrThreshold + "%");
+                prefs.edit().putInt("ocr_threshold", ocrThreshold).apply();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        recog.addView(ocrBar);
+        TextView ocrTip = text("OCR 首次加载模型约 1–3 秒，每帧识别更耗电；建议截图间隔 ≥10 秒。两个都开且选“同时满足”时，误报更少。", 12, MUTED, Typeface.NORMAL);
+        ocrTip.setPadding(0, dp(6), 0, dp(4));
+        recog.addView(ocrTip);
+        root.addView(recog);
+
         // ---- start
         startBtn = new Button(this);
-        startBtn.setText("开始监控");
+        startBtn.setText("开始监测");
         startBtn.setAllCaps(false);
         startBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         startBtn.setTextColor(Color.WHITE);
@@ -277,15 +356,52 @@ public class MainActivity extends Activity {
         sl.topMargin = dp(12);
         root.addView(status, sl);
 
+        // ---- about / author
+        LinearLayout about = card();
+        about.addView(sectionTitle("关于"));
+        TextView ver = text("云游戏助手 v2.1 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
+        ver.setPadding(0, dp(4), 0, dp(8));
+        about.addView(ver);
+        Button bili = new Button(this);
+        bili.setText("打开 B 站主页");
+        bili.setAllCaps(false);
+        bili.setOnClickListener(v -> openUrl(BILI_SPACE));
+        LinearLayout.LayoutParams bil = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+        bil.bottomMargin = dp(4);
+        about.addView(bili, bil);
+        LinearLayout.LayoutParams abl = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        abl.topMargin = dp(12);
+        root.addView(about, abl);
+
         TextView notes = text("提示：\n"
+                + "• 像素与 OCR 是两个独立开关，可单开也可同开；同开时可选“需同时满足”降低误报。\n"
+                + "• OCR 完全离线（Tesseract 中文模型），首次识别需加载模型，会慢 1–3 秒。\n"
                 + "• 首次开始会弹出「立即开始录制或投放」的屏幕捕获授权，必须允许，否则无法截图。\n"
-                + "• 锁屏或熄屏时不截图，亮屏后重新开始计时，避免黑屏被误判为巨大变化。\n"
+                + "• 截图间隔可设 5 秒～10 分钟；锁屏或熄屏时不截图，亮屏后重新计时。\n"
                 + "• 音乐走「闹钟」音量通道：请把闹钟/媒体音量调高，勿扰模式下允许闹钟。\n"
-                + "• 小米/OPPO/vivo 等还需在系统设置里允许「自启动 / 后台弹出界面 / 锁屏显示」，否则后台可能被杀。", 12, MUTED, Typeface.NORMAL);
+                + "• 小米/OPPO/vivo 等还需在系统设置里允许「自启动 / 后台弹出界面 / 锁屏显示」。", 12, MUTED, Typeface.NORMAL);
         notes.setPadding(0, dp(16), 0, 0);
         root.addView(notes);
 
         return scroll;
+    }
+
+    private Switch addSwitchRow(LinearLayout parent, String label, boolean checked,
+                                CompoundButton.OnCheckedChangeListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, dp(2));
+        TextView t = text(label, 14, TEXT, Typeface.BOLD);
+        row.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Switch sw = new Switch(this);
+        sw.setChecked(checked);
+        sw.setOnCheckedChangeListener(listener);
+        row.addView(sw);
+        parent.addView(row);
+        return sw;
     }
 
     private TextView sectionTitle(String s) {
@@ -357,6 +473,24 @@ public class MainActivity extends Activity {
         startBtn.setBackground(g);
     }
 
+    private String formatInterval(int sec) {
+        if (sec < 60) {
+            return sec + " 秒";
+        }
+        if (sec % 60 == 0) {
+            return (sec / 60) + " 分钟";
+        }
+        return (sec / 60) + " 分 " + (sec % 60) + " 秒";
+    }
+
+    private void openUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Throwable t) {
+            toast("没有能打开链接的应用");
+        }
+    }
+
     private int dp(float v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
@@ -394,13 +528,16 @@ public class MainActivity extends Activity {
 
     private void refreshRunState() {
         boolean running = ScreenWatchService.isRunning();
-        startBtn.setText(running ? "停止监控" : "开始监控");
+        startBtn.setText(running ? "停止监测" : "开始监测");
         styleStartButton(running);
-        statusLine.setText(running ? "状态：运行中" : "状态：未启动");
+        statusLine.setText(running ? "状态：排队监测中" : "状态：未启动");
         float ratio = prefs.getFloat("last_ratio", -1f);
+        float textRatio = prefs.getFloat("last_text_ratio", 0f);
         ratioLine.setText(ratio < 0
-                ? "最近变化：—"
-                : String.format(Locale.US, "最近变化：%.1f%%（阈值 %d%%）", ratio, threshold));
+                ? "上次变化：—"
+                : useOcr
+                ? String.format(Locale.US, "上次变化：像素 %.1f%% · 文字 %.0f%%", ratio, textRatio)
+                : String.format(Locale.US, "上次变化：%.1f%%（阈值 %d%%）", ratio, threshold));
     }
 
     // ---------------------------------------------------------------- actions
@@ -459,6 +596,10 @@ public class MainActivity extends Activity {
         if (!Settings.canDrawOverlays(this)) {
             toast("请先授予悬浮窗权限");
             openOverlaySettings();
+            return;
+        }
+        if (!usePixel && !useOcr) {
+            toast("至少开启一种识别方式（像素或 OCR）");
             return;
         }
         if (musicUri() == null) {
@@ -555,7 +696,12 @@ public class MainActivity extends Activity {
                         .putExtra(ScreenWatchService.EXTRA_CODE, resultCode)
                         .putExtra(ScreenWatchService.EXTRA_DATA, data)
                         .putExtra(ScreenWatchService.EXTRA_THRESHOLD, threshold)
-                        .putExtra(ScreenWatchService.EXTRA_INTERVAL_MIN, intervalMin)
+                        .putExtra(ScreenWatchService.EXTRA_INTERVAL_SEC, intervalSec)
+                        .putExtra(ScreenWatchService.EXTRA_AUTO_STOP, autoStop)
+                        .putExtra(ScreenWatchService.EXTRA_USE_PIXEL, usePixel)
+                        .putExtra(ScreenWatchService.EXTRA_USE_OCR, useOcr)
+                        .putExtra(ScreenWatchService.EXTRA_OCR_THRESHOLD, ocrThreshold)
+                        .putExtra(ScreenWatchService.EXTRA_REQUIRE_BOTH, requireBoth)
                         .putExtra(ScreenWatchService.EXTRA_RING_SECONDS, 180);
                 Uri music = musicUri();
                 if (music != null) {
@@ -568,7 +714,7 @@ public class MainActivity extends Activity {
                 }
                 ui.postDelayed(this::refreshRunState, 800);
             } else {
-                toast("未授权屏幕捕获，无法开始监控");
+                toast("未授权屏幕捕获，无法开始监测");
             }
         }
     }

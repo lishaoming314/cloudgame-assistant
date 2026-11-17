@@ -59,7 +59,12 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String EXTRA_CODE = "code";
     public static final String EXTRA_DATA = "data";
     public static final String EXTRA_THRESHOLD = "threshold";
-    public static final String EXTRA_INTERVAL_MIN = "intervalMin";
+    public static final String EXTRA_INTERVAL_SEC = "intervalSec";
+    public static final String EXTRA_AUTO_STOP = "autoStop";
+    public static final String EXTRA_USE_PIXEL = "usePixel";
+    public static final String EXTRA_USE_OCR = "useOcr";
+    public static final String EXTRA_OCR_THRESHOLD = "ocrThreshold";
+    public static final String EXTRA_REQUIRE_BOTH = "requireBoth";
     public static final String EXTRA_MUSIC = "music";
     public static final String EXTRA_RING_SECONDS = "ringSeconds";
 
@@ -68,11 +73,12 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String EXTRA_RINGING = "ringing";
     public static final String EXTRA_PAUSED = "paused";
     public static final String EXTRA_STATUS = "status";
+    public static final String EXTRA_TEXT_RATIO = "textRatio";
 
     public static final String PREF = "watch";
     public static final String KEY_MUSIC = "music_uri";
     public static final String KEY_THRESHOLD = "threshold";
-    public static final String KEY_INTERVAL = "interval_min";
+    public static final String KEY_INTERVAL = "interval_sec";
 
     static final String CHANNEL = "watch";
     static final int NOTIF_ID = 42;
@@ -125,6 +131,17 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     private int threshold = 15;
     private long intervalMs = 60_000L;
+    private boolean autoStopAfterAlert = true;
+    private boolean usePixel = true;
+    private boolean useOcr = false;
+    private boolean requireBoth = true;
+    private int ocrThreshold = 30;
+    private float maxCaptureSide = MAX_CAPTURE_SIDE;
+
+    private float lastTextRatio;
+    private String prevText;
+    private boolean hasTextBaseline;
+    private OcrEngine ocrEngine;
     private int ringSeconds = 180;
     private String musicUri;
 
@@ -186,8 +203,14 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         int code = intent.getIntExtra(EXTRA_CODE, android.app.Activity.RESULT_CANCELED);
         Intent data = intent.getParcelableExtra(EXTRA_DATA);
         threshold = clamp(intent.getIntExtra(EXTRA_THRESHOLD, 15), 1, 100);
-        int intervalMin = clamp(intent.getIntExtra(EXTRA_INTERVAL_MIN, 1), 1, 60);
-        intervalMs = intervalMin * 60_000L;
+        int intervalSec = clamp(intent.getIntExtra(EXTRA_INTERVAL_SEC, 60), 5, 3600);
+        intervalMs = intervalSec * 1000L;
+        autoStopAfterAlert = intent.getBooleanExtra(EXTRA_AUTO_STOP, true);
+        usePixel = intent.getBooleanExtra(EXTRA_USE_PIXEL, true);
+        useOcr = intent.getBooleanExtra(EXTRA_USE_OCR, false);
+        requireBoth = intent.getBooleanExtra(EXTRA_REQUIRE_BOTH, true);
+        ocrThreshold = clamp(intent.getIntExtra(EXTRA_OCR_THRESHOLD, 30), 5, 100);
+        maxCaptureSide = useOcr ? 960f : MAX_CAPTURE_SIDE;
         ringSeconds = clamp(intent.getIntExtra(EXTRA_RING_SECONDS, 180), 5, 3600);
         musicUri = intent.getStringExtra(EXTRA_MUSIC);
         if (musicUri == null) {
@@ -234,6 +257,13 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         prevSample = null;
         lastRatio = 0f;
         lastCaptureAt = 0;
+        hasTextBaseline = false;
+        prevText = null;
+        lastTextRatio = 0f;
+        if (ocrEngine != null && !useOcr) {
+            ocrEngine.release();
+            ocrEngine = null;
+        }
 
         synchronized (captureLock) {
             setupVirtualDisplay();
@@ -245,9 +275,11 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         overlay.setPaused(false);
         main.removeCallbacks(tick);
         main.post(tick);
-        refreshUiText();
         scheduleCapture(1500);
-        toast("盯屏提醒已开始，接下来每分钟截图对比一次");
+        refreshUiText();
+        String mode = usePixel && useOcr ? (requireBoth ? "像素+文字（同时满足）" : "像素+文字（任一满足）")
+                : usePixel ? "仅像素" : "仅文字 OCR";
+        toast(String.format(Locale.US, "云游戏助手已开始（%s），每 %d 秒检测一次", mode, intervalMs / 1000));
     }
 
     @Override
@@ -259,6 +291,10 @@ public class ScreenWatchService extends Service implements OverlayController.Act
             releaseVirtualDisplay();
         }
         stopRingingInternal();
+        if (ocrEngine != null) {
+            ocrEngine.release();
+            ocrEngine = null;
+        }
         if (projection != null) {
             try {
                 projection.stop();
@@ -304,7 +340,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         rotation = display.getRotation();
         int sw = Math.max(dm.widthPixels, 8);
         int sh = Math.max(dm.heightPixels, 8);
-        float scale = Math.min(1f, MAX_CAPTURE_SIDE / (float) Math.max(sw, sh));
+        float scale = Math.min(1f, maxCaptureSide / (float) Math.max(sw, sh));
         captureW = Math.max(8, (Math.round(sw * scale) / 8) * 8);
         captureH = Math.max(8, (Math.round(sh * scale) / 8) * 8);
         try {
@@ -430,29 +466,75 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         long now = SystemClock.uptimeMillis();
         lastCaptureAt = now;
         try {
-            int[] sample = new int[GRID * GRID];
-            Bitmap small = Bitmap.createScaledBitmap(frame, GRID, GRID, true);
-            small.getPixels(sample, 0, GRID, 0, 0, GRID, GRID);
-            small.recycle();
-
-            float ratio = 0f;
-            if (hasBaseline && prevSample != null) {
-                ratio = PixelDiff.changeRatio(prevSample, sample, CELL_TOLERANCE);
+            float pixelRatio = 0f;
+            boolean pixelHit = false;
+            if (usePixel) {
+                int[] sample = new int[GRID * GRID];
+                Bitmap small = Bitmap.createScaledBitmap(frame, GRID, GRID, true);
+                small.getPixels(sample, 0, GRID, 0, 0, GRID, GRID);
+                small.recycle();
+                if (hasBaseline && prevSample != null) {
+                    pixelRatio = PixelDiff.changeRatio(prevSample, sample, CELL_TOLERANCE);
+                }
+                lastRatio = pixelRatio;
+                pixelHit = hasBaseline && prevSample != null && pixelRatio > threshold;
+                if (prevSample == null) {
+                    prevSample = new int[sample.length];
+                }
+                System.arraycopy(sample, 0, prevSample, 0, sample.length);
+                hasBaseline = true;
+            } else {
+                lastRatio = 0f;
             }
-            lastRatio = ratio;
+
+            float textRatio = 0f;
+            boolean ocrHit = false;
+            if (useOcr) {
+                if (ocrEngine == null) {
+                    ocrEngine = new OcrEngine();
+                }
+                if (!ocrEngine.ensureReady(this)) {
+                    useOcr = false;
+                    main.post(() -> toast("OCR 初始化失败，已切换为仅像素识别"));
+                } else if (usePixel && pixelRatio < 1.0f) {
+                    // Screen did not change at all: no need to spend seconds on OCR.
+                    textRatio = 0f;
+                } else {
+                    String text = ocrEngine.recognize(frame);
+                    if (text != null) {
+                        if (hasTextBaseline) {
+                            textRatio = TextDiff.changeRatio(prevText, text);
+                            boolean noText = TextDiff.normalize(prevText).isEmpty()
+                                    && TextDiff.normalize(text).isEmpty();
+                            // In AND mode, a screen without any recognized text must not
+                            // block an obvious pixel change.
+                            ocrHit = (noText && usePixel && requireBoth) || textRatio > ocrThreshold;
+                        }
+                        lastTextRatio = textRatio;
+                        prevText = text;
+                        hasTextBaseline = true;
+                    }
+                }
+            } else {
+                lastTextRatio = 0f;
+            }
+
             saveSnapshots(frame);
 
-            boolean crossed = hasBaseline && ratio > threshold;
-            if (prevSample == null) {
-                prevSample = new int[sample.length];
+            boolean trigger;
+            if (usePixel && useOcr) {
+                trigger = requireBoth ? (pixelHit && ocrHit) : (pixelHit || ocrHit);
+            } else if (usePixel) {
+                trigger = pixelHit;
+            } else {
+                trigger = ocrHit;
             }
-            System.arraycopy(sample, 0, prevSample, 0, sample.length);
-            hasBaseline = true;
 
-            Log.i(TAG, String.format(Locale.US, "capture ratio=%.2f%% threshold=%d%% ringing=%s",
-                    ratio, threshold, ringing));
-            if (crossed) {
-                triggerRing(ratio);
+            Log.i(TAG, String.format(Locale.US,
+                    "capture pixel=%.2f%% text=%.2f%% pixelHit=%s ocrHit=%s ringing=%s",
+                    lastRatio, lastTextRatio, pixelHit, ocrHit, ringing));
+            if (trigger) {
+                triggerRing(lastRatio, lastTextRatio);
             }
             publishStats();
         } catch (Throwable t) {
@@ -519,13 +601,14 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     // ---------------------------------------------------------------- ringing
 
-    private void triggerRing(float ratio) {
+    private void triggerRing(float pixelRatio, float textRatio) {
         if (ringing) {
             return;
         }
         if (musicUri == null || musicUri.isEmpty()) {
             vibrate();
-            toast(String.format(Locale.US, "画面变化 %.1f%%，但还没选择音乐", ratio));
+            toast(String.format(Locale.US, "检测到变化（像素 %.1f%% / 文字 %.0f%%），但还没选择音乐",
+                    pixelRatio, textRatio));
             return;
         }
         ringing = true;
@@ -534,6 +617,12 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         if (!ok) {
             ringing = false;
             return;
+        }
+        if (autoStopAfterAlert) {
+            paused = true;
+            if (captureHandler != null) {
+                captureHandler.removeCallbacks(captureRunnable);
+            }
         }
         acquireWakeLock(ringSeconds * 1000L + 15_000L);
         if (captureHandler != null) {
@@ -585,7 +674,11 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         @Override
         public void run() {
             stopRingingInternal();
-            main.post(ScreenWatchService.this::refreshUiText);
+            if (autoStopAfterAlert) {
+                main.post(() -> stopEverything("排队结束，已提醒"));
+            } else {
+                main.post(ScreenWatchService.this::refreshUiText);
+            }
         }
     };
 
@@ -594,7 +687,11 @@ public class ScreenWatchService extends Service implements OverlayController.Act
             captureHandler.removeCallbacks(ringStopRunnable);
         }
         stopRingingInternal();
-        main.post(this::refreshUiText);
+        if (autoStopAfterAlert) {
+            main.post(() -> stopEverything("排队结束，已提醒"));
+        } else {
+            main.post(this::refreshUiText);
+        }
     }
 
     private void stopRingingInternal() {
@@ -645,7 +742,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     @Override
     public void captureNow() {
-        if (!running) {
+        if (!running || ringing) {
             return;
         }
         if (paused) {
@@ -658,7 +755,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     @Override
     public void togglePause() {
-        if (!running) {
+        if (!running || ringing) {
             return;
         }
         paused = !paused;
@@ -749,8 +846,10 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     private void refreshUiText() {
         if (overlay != null) {
             overlay.update(statusLine(), detailLine());
+            overlay.setBallText(ballText());
+            overlay.setMode(ballMode());
         }
-        String text = statusLine();
+        String text = notificationText();
         if (!text.equals(lastNotifText)) {
             lastNotifText = text;
             NotificationManager nm =
@@ -771,7 +870,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         }
         if (ringing) {
             long left = Math.max(0, ringEndAt - SystemClock.elapsedRealtime());
-            return String.format(Locale.US, "🔔 响铃中 · %d:%02d 后停止",
+            return String.format(Locale.US, "🔔 可能已进入游戏 · %d:%02d 后停止",
                     left / 60000, (left / 1000) % 60);
         }
         if (paused) {
@@ -781,18 +880,84 @@ public class ScreenWatchService extends Service implements OverlayController.Act
             return "💤 屏幕已关闭 · 暂停截图";
         }
         long left = Math.max(0, nextCaptureAt - SystemClock.uptimeMillis());
-        return String.format(Locale.US, "● 监控中 · %ds 后截图", Math.round(left / 1000.0));
+        return String.format(Locale.US, "● 排队监测中 · %ds 后截图", Math.round(left / 1000.0));
+    }
+
+    /** Coarse text for the notification: it must not change every second. */
+    private String notificationText() {
+        if (ringing) {
+            return statusLine();
+        }
+        if (paused) {
+            return "已暂停";
+        }
+        if (screenOff) {
+            return "屏幕已关闭，暂停截图";
+        }
+        if (useOcr) {
+            return String.format(Locale.US, "排队监测中 · 像素 %.1f%% · 文字 %.0f%%",
+                    lastRatio, lastTextRatio);
+        }
+        return String.format(Locale.US, "排队监测中 · 像素 %.1f%%", lastRatio);
+    }
+
+    /** Text inside the floating ball: seconds until the next capture. */
+    private String ballText() {
+        if (!running) {
+            return "—";
+        }
+        if (ringing) {
+            return "!";
+        }
+        if (paused) {
+            return "II";
+        }
+        if (screenOff) {
+            return "zZ";
+        }
+        long left = Math.max(0, nextCaptureAt - SystemClock.uptimeMillis());
+        return String.valueOf((left + 999) / 1000);
+    }
+
+    private int ballMode() {
+        if (ringing) {
+            return OverlayController.MODE_RINGING;
+        }
+        if (!running) {
+            return OverlayController.MODE_OFF;
+        }
+        if (paused) {
+            return OverlayController.MODE_PAUSED;
+        }
+        if (screenOff) {
+            return OverlayController.MODE_OFF;
+        }
+        return OverlayController.MODE_NORMAL;
     }
 
     private String detailLine() {
-        String music = (musicUri == null) ? "未选音乐" : "音乐已选";
-        return String.format(Locale.US, "变化 %.1f%% · 阈值 %d%% · %s",
-                lastRatio, threshold, music);
+        StringBuilder b = new StringBuilder();
+        if (usePixel) {
+            b.append(String.format(Locale.US, "像素 %.1f%%", lastRatio));
+        } else {
+            b.append("像素关");
+        }
+        if (useOcr) {
+            b.append(String.format(Locale.US, " · 文字 %.0f%%", lastTextRatio));
+        } else {
+            b.append(" · 文字关");
+        }
+        b.append(String.format(Locale.US, " · 阈值 %d%%", threshold));
+        if (useOcr) {
+            b.append("/").append(ocrThreshold).append("%");
+        }
+        return b.toString();
     }
 
     private void publishStats() {
         SharedPreferences.Editor e = getSharedPreferences(PREF, MODE_PRIVATE).edit();
         e.putFloat("last_ratio", lastRatio)
+                .putFloat("last_text_ratio", lastTextRatio)
                 .putLong("last_capture_at", lastCaptureAt)
                 .putBoolean("running", running)
                 .putBoolean("ringing", ringing)
@@ -802,7 +967,8 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         i.putExtra(EXTRA_RATIO, lastRatio)
                 .putExtra(EXTRA_RINGING, ringing)
                 .putExtra(EXTRA_PAUSED, paused)
-                .putExtra(EXTRA_STATUS, statusLine());
+                .putExtra(EXTRA_STATUS, statusLine())
+                .putExtra(EXTRA_TEXT_RATIO, lastTextRatio);
         sendBroadcast(i);
     }
 
@@ -811,9 +977,9 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         if (nm == null) {
             return;
         }
-        NotificationChannel ch = new NotificationChannel(CHANNEL, "盯屏监控",
+        NotificationChannel ch = new NotificationChannel(CHANNEL, "云游戏监控",
                 NotificationManager.IMPORTANCE_LOW);
-        ch.setDescription("每分钟截图对比的运行状态");
+        ch.setDescription("排队画面监测的运行状态");
         ch.setShowBadge(false);
         ch.enableVibration(false);
         ch.setSound(null, null);
@@ -831,8 +997,8 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         PendingIntent pi = PendingIntent.getActivity(this, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT);
         Notification.Builder b = new Notification.Builder(this, CHANNEL)
-                .setSmallIcon(android.R.drawable.ic_menu_camera)
-                .setContentTitle("盯屏提醒")
+                .setSmallIcon(R.drawable.ic_stat_cloud)
+                .setContentTitle("云游戏助手")
                 .setContentText(text)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)

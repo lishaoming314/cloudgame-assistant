@@ -14,3 +14,10 @@ local.properties
 
 # generated archives
 *.zip
+
+# python
+__pycache__/
+
+# OCR build inputs (fetch-ocr.sh downloads them)
+deps/
+assets/tessdata/

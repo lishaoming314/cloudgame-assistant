@@ -22,6 +22,11 @@ if [ ! -f "$AJAR" ]; then
   exit 1
 fi
 
+if [ ! -f "$ROOT/deps/tesseract/classes.jar" ] || [ ! -s "$ROOT/assets/tessdata/chi_sim.traineddata" ]; then
+  echo "== OCR deps missing, fetching"
+  "$ROOT/fetch-ocr.sh"
+fi
+
 echo "== build-tools: $BT_DIR"
 rm -rf "$OUT"
 mkdir -p "$OUT/classes" "$OUT/gen" "$OUT/dex"
@@ -33,22 +38,33 @@ if [ -d "$ROOT/res" ]; then
   RES_ARGS+=(-R "$OUT/res.zip")
 fi
 
+ASSET_ARGS=()
+if [ -d "$ROOT/assets" ]; then
+  ASSET_ARGS+=(-A "$ROOT/assets")
+fi
+
 # ---------- link manifest + resources ----------
 "$BT_DIR/aapt2" link \
   -o "$OUT/base.apk" \
   -I "$AJAR" \
   --manifest "$ROOT/AndroidManifest.xml" \
   "${RES_ARGS[@]}" \
+  "${ASSET_ARGS[@]}" \
   --java "$OUT/gen" \
-  --version-code 1 \
-  --version-name 1.0 \
+  --version-code 3 \
+  --version-name 2.1 \
   --auto-add-overlay
 
 # ---------- compile java ----------
 mapfile -t SRC < <(find "$ROOT/src" "$OUT/gen" -name '*.java' | sort)
 echo "== javac: ${#SRC[@]} files"
+TESS_JAR="$ROOT/deps/tesseract/classes.jar"
+CP="$AJAR"
+if [ -f "$TESS_JAR" ]; then
+  CP="$CP:$TESS_JAR"
+fi
 javac -encoding UTF-8 --release 8 -Xlint:-options \
-  -classpath "$AJAR" -d "$OUT/classes" "${SRC[@]}"
+  -classpath "$CP" -d "$OUT/classes" "${SRC[@]}"
 
 # ---------- dex ----------
 mapfile -t CLASSES < <(find "$OUT/classes" -name '*.class' | sort)
@@ -61,9 +77,8 @@ else
     mkdir -p "$ROOT/tools"
     echo "== downloading r8.jar (d8 is not shipped by Debian build-tools)"
     for url in \
-      "https://dl.google.com/dl/android/maven2/com/android/tools/r8/3.0.73/r8-3.0.73.jar" \
-      "https://maven.aliyun.com/repository/public/com/android/tools/r8/3.0.73/r8-3.0.73.jar" \
-      "https://maven.aliyun.com/repository/google/com/android/tools/r8/3.0.73/r8-3.0.73.jar" ; do
+      "https://dl.google.com/dl/android/maven2/com/android/tools/r8/8.2.42/r8-8.2.42.jar" \
+      "https://dl.google.com/dl/android/maven2/com/android/tools/r8/8.3.37/r8-8.3.37.jar" ; do
       if curl -fsSL --connect-timeout 15 -o "$R8JAR" "$url"; then
         break
       fi
@@ -73,11 +88,23 @@ else
   D8=(java -cp "$R8JAR" com.android.tools.r8.D8)
 fi
 echo "== dex"
-"${D8[@]}" --release --lib "$AJAR" --min-api 26 --output "$OUT/dex" "${CLASSES[@]}"
+D8_INPUTS=("${CLASSES[@]}")
+if [ -f "$TESS_JAR" ]; then
+  D8_INPUTS+=("$TESS_JAR")
+fi
+"${D8[@]}" --release --lib "$AJAR" --min-api 26 --output "$OUT/dex" "${D8_INPUTS[@]}"
 
 # ---------- package ----------
 cp "$OUT/base.apk" "$OUT/unsigned.apk"
 (cd "$OUT/dex" && zip -q -X "$OUT/unsigned.apk" classes.dex)
+
+SO_DIR="$ROOT/deps/tesseract/jni/arm64-v8a"
+if [ -d "$SO_DIR" ]; then
+  rm -rf "$OUT/apkroot"
+  mkdir -p "$OUT/apkroot/lib/arm64-v8a"
+  cp "$SO_DIR"/*.so "$OUT/apkroot/lib/arm64-v8a/"
+  (cd "$OUT/apkroot" && zip -q -0 -r "$OUT/unsigned.apk" lib)
+fi
 "$BT_DIR/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 
 # ---------- sign ----------
@@ -88,7 +115,7 @@ if [ ! -f "$KS" ]; then
     -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ScreenWatch, O=DSH, C=CN" >/dev/null 2>&1
   echo "== created keystore/debug.keystore (password: android)"
 fi
-APK="$OUT/ScreenWatch-1.0.apk"
+APK="$OUT/CloudGameAssistant-2.1.apk"
 "$BT_DIR/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
   --v1-signing-enabled true --v2-signing-enabled true \
   --out "$APK" "$OUT/aligned.apk"

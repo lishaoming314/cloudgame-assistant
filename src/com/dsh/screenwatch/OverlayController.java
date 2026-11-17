@@ -1,5 +1,7 @@
 package com.dsh.screenwatch;
 
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
 import android.provider.Settings;
@@ -12,8 +14,11 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * Draggable floating status card (TYPE_APPLICATION_OVERLAY).
- * Shows the countdown, the last change ratio and quick controls.
+ * Floating countdown ball (TYPE_APPLICATION_OVERLAY).
+ *
+ * Collapsed: a 60dp gradient ball showing the seconds left until the next capture.
+ * Tap:       expands a small panel with status + 截图 / 暂停 / 停止 / 收起.
+ * Drag:      move it anywhere.
  */
 final class OverlayController {
 
@@ -25,14 +30,23 @@ final class OverlayController {
         void stopAll();
     }
 
+    static final int MODE_NORMAL = 0;
+    static final int MODE_PAUSED = 1;
+    static final int MODE_RINGING = 2;
+    static final int MODE_OFF = 3;
+
     private final Context ctx;
     private final Actions actions;
     private final WindowManager wm;
 
     private LinearLayout root;
+    private LinearLayout panel;
+    private TextView ball;
     private TextView statusText;
     private TextView detailText;
     private TextView pauseBtn;
+    private GradientDrawable ballBg;
+    private ObjectAnimator pulse;
     private WindowManager.LayoutParams lp;
     private boolean shown;
 
@@ -60,9 +74,8 @@ final class OverlayController {
                     android.graphics.PixelFormat.TRANSLUCENT);
             lp.gravity = Gravity.TOP | Gravity.START;
             lp.x = dp(10);
-            lp.y = dp(90);
+            lp.y = dp(120);
             lp.windowAnimations = 0;
-            attachDrag(root);
             wm.addView(root, lp);
             shown = true;
             return true;
@@ -74,6 +87,7 @@ final class OverlayController {
     }
 
     void hide() {
+        stopPulse();
         if (!shown || root == null) {
             return;
         }
@@ -94,41 +108,111 @@ final class OverlayController {
         }
     }
 
+    void setBallText(String text) {
+        if (ball != null) {
+            ball.setText(text);
+        }
+    }
+
+    void setMode(int mode) {
+        if (ball == null || ballBg == null) {
+            return;
+        }
+        switch (mode) {
+            case MODE_RINGING:
+                ballBg.setColors(new int[]{0xFFFF3B30, 0xFFFF9500});
+                startPulse();
+                break;
+            case MODE_PAUSED:
+                ballBg.setColors(new int[]{0xFF6B7785, 0xFF3D4652});
+                stopPulse();
+                break;
+            case MODE_OFF:
+                ballBg.setColors(new int[]{0xFF2B3240, 0xFF1B2029});
+                stopPulse();
+                break;
+            default:
+                ballBg.setColors(new int[]{0xFFFF6A00, 0xFFEE0979});
+                stopPulse();
+                break;
+        }
+    }
+
     void setPaused(boolean paused) {
         if (pauseBtn != null) {
             pauseBtn.setText(paused ? "继续" : "暂停");
         }
     }
 
+    void togglePanel() {
+        if (panel == null) {
+            return;
+        }
+        boolean show = panel.getVisibility() != View.VISIBLE;
+        panel.setVisibility(show ? View.VISIBLE : View.GONE);
+    }
+
     // ------------------------------------------------------------ view building
 
     private LinearLayout buildView() {
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        ball = new TextView(ctx);
+        ball.setGravity(Gravity.CENTER);
+        ball.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        ball.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        ball.setTextColor(0xFFFFFFFF);
+        ball.setText("60");
+        ball.setShadowLayer(dp(4), 0, dp(1), 0x66000000);
+        ballBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0xFFFF6A00, 0xFFEE0979});
+        ballBg.setShape(GradientDrawable.OVAL);
+        ballBg.setStroke(dp(2), 0x55FFFFFF);
+        ball.setBackground(ballBg);
+        ball.setElevation(dp(8));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(60), dp(60));
+        row.addView(ball, blp);
+
+        panel = buildPanel();
+        panel.setVisibility(View.GONE);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        plp.leftMargin = dp(8);
+        row.addView(panel, plp);
+
+        attachTouch(ball);
+        return row;
+    }
+
+    private LinearLayout buildPanel() {
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(12), dp(10), dp(12), dp(10));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xE6182230);
+        bg.setColor(0xF0141B2B);
         bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1), 0x552F80ED);
+        bg.setStroke(dp(1), 0x66FF6A00);
         card.setBackground(bg);
-        card.setElevation(dp(6));
+        card.setElevation(dp(10));
 
         TextView title = new TextView(ctx);
-        title.setText("盯屏提醒");
+        title.setText("云游戏助手");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        title.setTextColor(0xFF8AB4F8);
-        title.setGravity(Gravity.START);
+        title.setTextColor(0xFFFF8A3D);
         card.addView(title);
 
         statusText = new TextView(ctx);
-        statusText.setText("● 监控中");
+        statusText.setText("● 排队监测中");
         statusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         statusText.setTextColor(0xFFFFFFFF);
-        statusText.setPadding(0, dp(2), 0, 0);
+        statusText.setPadding(0, dp(3), 0, 0);
         card.addView(statusText);
 
         detailText = new TextView(ctx);
-        detailText.setText("变化 0.0% · 阈值 15%");
+        detailText.setText("上次变化 0.0% · 阈值 15%");
         detailText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         detailText.setTextColor(0xFFA7B4C4);
         detailText.setPadding(0, dp(2), 0, dp(8));
@@ -145,9 +229,13 @@ final class OverlayController {
         pauseBtn.setOnClickListener(v -> actions.togglePause());
         bar.addView(pauseBtn);
 
-        TextView stop = pill("关闭");
+        TextView stop = pill("停止");
         stop.setOnClickListener(v -> actions.stopAll());
         bar.addView(stop);
+
+        TextView close = pill("收起");
+        close.setOnClickListener(v -> togglePanel());
+        bar.addView(close);
 
         card.addView(bar);
         return card;
@@ -159,9 +247,7 @@ final class OverlayController {
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         t.setTextColor(0xFFFFFFFF);
         t.setGravity(Gravity.CENTER);
-        int gap = dp(8);
-        int v = dp(5);
-        t.setPadding(dp(12), v, dp(12), v);
+        t.setPadding(dp(11), dp(5), dp(11), dp(5));
         t.setMinHeight(dp(30));
         GradientDrawable g = new GradientDrawable();
         g.setColor(0x33FFFFFF);
@@ -170,12 +256,12 @@ final class OverlayController {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
-        p.rightMargin = gap;
+        p.rightMargin = dp(8);
         t.setLayoutParams(p);
         return t;
     }
 
-    private void attachDrag(View view) {
+    private void attachTouch(View view) {
         view.setOnTouchListener(new View.OnTouchListener() {
             float downX, downY;
             int startX, startY;
@@ -207,6 +293,10 @@ final class OverlayController {
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
+                        if (!moved) {
+                            togglePanel();
+                        }
+                        return true;
                     case MotionEvent.ACTION_CANCEL:
                         return true;
                     default:
@@ -214,6 +304,27 @@ final class OverlayController {
                 }
             }
         });
+    }
+
+    private void startPulse() {
+        if (pulse != null) {
+            return;
+        }
+        pulse = ObjectAnimator.ofFloat(ball, View.ALPHA, 1f, 0.55f);
+        pulse.setDuration(420);
+        pulse.setRepeatMode(ValueAnimator.REVERSE);
+        pulse.setRepeatCount(ValueAnimator.INFINITE);
+        pulse.start();
+    }
+
+    private void stopPulse() {
+        if (pulse != null) {
+            pulse.cancel();
+            pulse = null;
+        }
+        if (ball != null) {
+            ball.setAlpha(1f);
+        }
     }
 
     private int dp(float v) {
