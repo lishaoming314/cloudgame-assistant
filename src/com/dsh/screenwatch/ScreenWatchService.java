@@ -55,6 +55,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String ACTION_TOGGLE_PAUSE = "com.dsh.screenwatch.action.TOGGLE_PAUSE";
     public static final String ACTION_CAPTURE_NOW = "com.dsh.screenwatch.action.CAPTURE_NOW";
     public static final String ACTION_STOP_RING = "com.dsh.screenwatch.action.STOP_RING";
+    public static final String ACTION_SET_THEME = "com.dsh.screenwatch.action.SET_THEME";
 
     public static final String EXTRA_CODE = "code";
     public static final String EXTRA_DATA = "data";
@@ -67,6 +68,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String EXTRA_REQUIRE_BOTH = "requireBoth";
     public static final String EXTRA_MUSIC = "music";
     public static final String EXTRA_RING_SECONDS = "ringSeconds";
+    public static final String EXTRA_COLOR = "accentColor";
 
     public static final String ACTION_STATS = "com.dsh.screenwatch.action.STATS";
     public static final String EXTRA_RATIO = "ratio";
@@ -143,6 +145,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     private boolean hasTextBaseline;
     private OcrEngine ocrEngine;
     private int ringSeconds = 180;
+    private int accent = 0xFFFF6A00;
     private String musicUri;
 
     private MediaPlayer player;
@@ -189,6 +192,12 @@ public class ScreenWatchService extends Service implements OverlayController.Act
             case ACTION_STOP_RING:
                 handlerStopRing();
                 break;
+            case ACTION_SET_THEME:
+                handleTheme(intent);
+                if (!running) {
+                    stopSelf();
+                }
+                break;
             default:
                 stopSelf();
                 break;
@@ -212,6 +221,8 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         ocrThreshold = clamp(intent.getIntExtra(EXTRA_OCR_THRESHOLD, 30), 5, 100);
         maxCaptureSide = useOcr ? 960f : MAX_CAPTURE_SIDE;
         ringSeconds = clamp(intent.getIntExtra(EXTRA_RING_SECONDS, 180), 5, 3600);
+        accent = intent.getIntExtra(EXTRA_COLOR,
+                getSharedPreferences(PREF, MODE_PRIVATE).getInt("accent_color", 0xFFFF6A00));
         musicUri = intent.getStringExtra(EXTRA_MUSIC);
         if (musicUri == null) {
             musicUri = getSharedPreferences(PREF, MODE_PRIVATE).getString(KEY_MUSIC, null);
@@ -272,6 +283,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
             return;
         }
         overlay.show();
+        overlay.setAccent(accent);
         overlay.setPaused(false);
         main.removeCallbacks(tick);
         main.post(tick);
@@ -832,6 +844,17 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     // ---------------------------------------------------------------- ui / notification
 
+    private void handleTheme(Intent intent) {
+        int color = intent.getIntExtra(EXTRA_COLOR, accent);
+        accent = color;
+        getSharedPreferences(PREF, MODE_PRIVATE).edit().putInt("accent_color", color).apply();
+        if (overlay != null) {
+            overlay.setAccent(color);
+        }
+        lastNotifText = "";
+        refreshUiText();
+    }
+
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
@@ -1004,7 +1027,8 @@ public class ScreenWatchService extends Service implements OverlayController.Act
                 .setOnlyAlertOnce(true)
                 .setShowWhen(false)
                 .setCategory(Notification.CATEGORY_SERVICE)
-                .setContentIntent(pi);
+                .setContentIntent(pi)
+                .setColor(accent);
         b.addAction(new Notification.Action.Builder(android.R.drawable.ic_media_pause,
                 paused ? "继续" : "暂停", servicePending(ACTION_TOGGLE_PAUSE, 11)).build());
         b.addAction(new Notification.Action.Builder(android.R.drawable.ic_menu_camera,

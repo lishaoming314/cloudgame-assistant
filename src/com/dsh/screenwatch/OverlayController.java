@@ -3,6 +3,7 @@ package com.dsh.screenwatch;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.provider.Settings;
 import android.util.TypedValue;
@@ -49,6 +50,10 @@ final class OverlayController {
     private ObjectAnimator pulse;
     private WindowManager.LayoutParams lp;
     private boolean shown;
+    private int accent = 0xFFFF6A00;
+    private int mode = MODE_NORMAL;
+    private GradientDrawable panelBg;
+    private TextView titleText;
 
     OverlayController(Context ctx, Actions actions) {
         this.ctx = ctx;
@@ -115,27 +120,64 @@ final class OverlayController {
     }
 
     void setMode(int mode) {
-        if (ball == null || ballBg == null) {
+        this.mode = mode;
+        applyModeColors();
+        if (mode == MODE_RINGING) {
+            startPulse();
+        } else {
+            stopPulse();
+        }
+    }
+
+    void setAccent(int color) {
+        accent = color;
+        if (panelBg != null) {
+            panelBg.setStroke(dp(1), Color.argb(0x99, Color.red(color),
+                    Color.green(color), Color.blue(color)));
+        }
+        if (titleText != null) {
+            titleText.setTextColor(shade(color, 0.35f));
+        }
+        applyModeColors();
+    }
+
+    private void applyModeColors() {
+        if (ballBg == null) {
             return;
         }
         switch (mode) {
             case MODE_RINGING:
                 ballBg.setColors(new int[]{0xFFFF3B30, 0xFFFF9500});
-                startPulse();
                 break;
             case MODE_PAUSED:
                 ballBg.setColors(new int[]{0xFF6B7785, 0xFF3D4652});
-                stopPulse();
                 break;
             case MODE_OFF:
                 ballBg.setColors(new int[]{0xFF2B3240, 0xFF1B2029});
-                stopPulse();
                 break;
             default:
-                ballBg.setColors(new int[]{0xFFFF6A00, 0xFFEE0979});
-                stopPulse();
+                ballBg.setColors(new int[]{shade(accent, 0.22f), shade(accent, -0.22f)});
                 break;
         }
+    }
+
+    /** factor &gt; 0 lightens toward white, &lt; 0 darkens toward black. */
+    private static int shade(int color, float factor) {
+        int r = Color.red(color);
+        int g = Color.green(color);
+        int b = Color.blue(color);
+        if (factor >= 0) {
+            r += (255 - r) * factor;
+            g += (255 - g) * factor;
+            b += (255 - b) * factor;
+        } else {
+            float k = 1f + factor;
+            r *= k;
+            g *= k;
+            b *= k;
+        }
+        return Color.rgb(Math.min(255, Math.round(r)), Math.min(255, Math.round(g)),
+                Math.min(255, Math.round(b)));
     }
 
     void setPaused(boolean paused) {
@@ -167,7 +209,7 @@ final class OverlayController {
         ball.setText("60");
         ball.setShadowLayer(dp(4), 0, dp(1), 0x66000000);
         ballBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xFFFF6A00, 0xFFEE0979});
+                new int[]{shade(accent, 0.22f), shade(accent, -0.22f)});
         ballBg.setShape(GradientDrawable.OVAL);
         ballBg.setStroke(dp(2), 0x55FFFFFF);
         ball.setBackground(ballBg);
@@ -194,15 +236,17 @@ final class OverlayController {
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xF0141B2B);
         bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1), 0x66FF6A00);
+        bg.setStroke(dp(1), Color.argb(0x99, Color.red(accent), Color.green(accent), Color.blue(accent)));
         card.setBackground(bg);
+        panelBg = bg;
         card.setElevation(dp(10));
 
         TextView title = new TextView(ctx);
         title.setText("云游戏助手");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        title.setTextColor(0xFFFF8A3D);
+        title.setTextColor(shade(accent, 0.35f));
         card.addView(title);
+        titleText = title;
 
         statusText = new TextView(ctx);
         statusText.setText("● 排队监测中");

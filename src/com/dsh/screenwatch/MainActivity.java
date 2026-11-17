@@ -68,6 +68,23 @@ public class MainActivity extends Activity {
     private boolean useOcr = false;
     private boolean requireBoth = true;
     private int ocrThreshold = 30;
+    private int accent = 0xFFFF6A00;
+    private TextView themePreview;
+    private TextView titleView;
+    private final Runnable themePush = new Runnable() {
+        @Override
+        public void run() {
+            if (!ScreenWatchService.isRunning()) {
+                return;
+            }
+            try {
+                startService(new Intent(MainActivity.this, ScreenWatchService.class)
+                        .setAction(ScreenWatchService.ACTION_SET_THEME)
+                        .putExtra(ScreenWatchService.EXTRA_COLOR, accent));
+            } catch (Throwable ignored) {
+            }
+        }
+    };
 
     private MediaPlayer audition;
     private BroadcastReceiver statsReceiver;
@@ -83,6 +100,7 @@ public class MainActivity extends Activity {
         useOcr = prefs.getBoolean("use_ocr", false);
         requireBoth = prefs.getBoolean("require_both", true);
         ocrThreshold = Math.max(10, Math.min(90, prefs.getInt("ocr_threshold", 30)));
+        accent = prefs.getInt("accent_color", 0xFFFF6A00);
         setContentView(buildUi());
     }
 
@@ -148,6 +166,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = text("云游戏助手", 24, TEXT, Typeface.BOLD);
+        titleView = title;
         root.addView(title);
 
         TextView sub = text("盯住云游戏排队画面：按像素和/或 OCR 文字判断是否排到队、进入游戏，变化够大就播放本地音乐，响铃 3 分钟后停止。", 13, MUTED, Typeface.NORMAL);
@@ -356,10 +375,43 @@ public class MainActivity extends Activity {
         sl.topMargin = dp(12);
         root.addView(status, sl);
 
+        // ---- theme colour
+        LinearLayout theme = card();
+        theme.addView(sectionTitle("主题色"));
+        TextView themeHint = text("拖动色球选颜色：悬浮球、按钮和通知会同步更新", 12, MUTED, Typeface.NORMAL);
+        themeHint.setPadding(0, dp(4), 0, dp(6));
+        theme.addView(themeHint);
+        ColorBallView wheel = new ColorBallView(this);
+        wheel.setColor(accent);
+        int wheelSize = dp(190);
+        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(wheelSize, wheelSize);
+        wlp.gravity = Gravity.CENTER_HORIZONTAL;
+        wlp.topMargin = dp(4);
+        theme.addView(wheel, wlp);
+        themePreview = text(String.format(Locale.US, "当前主题色 #%06X", accent & 0xFFFFFF),
+                13, TEXT, Typeface.BOLD);
+        themePreview.setGravity(Gravity.CENTER);
+        themePreview.setPadding(0, dp(8), 0, dp(6));
+        theme.addView(themePreview);
+        Button resetColor = new Button(this);
+        resetColor.setText("恢复默认");
+        resetColor.setAllCaps(false);
+        resetColor.setOnClickListener(v -> {
+            wheel.setColor(0xFFFF6A00);
+            setAccentColor(0xFFFF6A00);
+        });
+        theme.addView(resetColor, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
+        wheel.setListener(this::setAccentColor);
+        LinearLayout.LayoutParams thl = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        thl.topMargin = dp(12);
+        root.addView(theme, thl);
+
         // ---- about / author
         LinearLayout about = card();
         about.addView(sectionTitle("关于"));
-        TextView ver = text("云游戏助手 v2.1 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
+        TextView ver = text("云游戏助手 v2.1.1 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
         ver.setPadding(0, dp(4), 0, dp(8));
         about.addView(ver);
         Button bili = new Button(this);
@@ -468,9 +520,27 @@ public class MainActivity extends Activity {
             return;
         }
         GradientDrawable g = new GradientDrawable();
-        g.setColor(running ? RED : BLUE);
+        g.setColor(running ? RED : accent);
         g.setCornerRadius(dp(14));
         startBtn.setBackground(g);
+        startBtn.setTextColor(running ? Color.WHITE : contrastText(accent));
+    }
+
+    private int contrastText(int color) {
+        double lum = 0.299 * Color.red(color) + 0.587 * Color.green(color)
+                + 0.114 * Color.blue(color);
+        return lum > 170 ? 0xFF17202B : Color.WHITE;
+    }
+
+    private void setAccentColor(int color) {
+        accent = color;
+        prefs.edit().putInt("accent_color", color).apply();
+        if (themePreview != null) {
+            themePreview.setText(String.format(Locale.US, "当前主题色 #%06X", color & 0xFFFFFF));
+        }
+        styleStartButton(ScreenWatchService.isRunning());
+        ui.removeCallbacks(themePush);
+        ui.postDelayed(themePush, 300);
     }
 
     private String formatInterval(int sec) {
@@ -702,7 +772,8 @@ public class MainActivity extends Activity {
                         .putExtra(ScreenWatchService.EXTRA_USE_OCR, useOcr)
                         .putExtra(ScreenWatchService.EXTRA_OCR_THRESHOLD, ocrThreshold)
                         .putExtra(ScreenWatchService.EXTRA_REQUIRE_BOTH, requireBoth)
-                        .putExtra(ScreenWatchService.EXTRA_RING_SECONDS, 180);
+                        .putExtra(ScreenWatchService.EXTRA_RING_SECONDS, 180)
+                        .putExtra(ScreenWatchService.EXTRA_COLOR, accent);
                 Uri music = musicUri();
                 if (music != null) {
                     i.putExtra(ScreenWatchService.EXTRA_MUSIC, music.toString());

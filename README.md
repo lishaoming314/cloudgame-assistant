@@ -14,6 +14,7 @@
 ## 功能
 
 - **悬浮倒计时球**：60dp 渐变圆球，实时显示距下次截图的秒数；点一下展开面板（截图 / 暂停 / 停止 / 收起），可拖动到任意位置。
+- **自定义主题色**：应用内有一枚 HSV 色球，拖动选色后悬浮球、按钮、通知会实时跟着变（图标保持渐变云朵）。
 - **双通道识别（独立开关）**：
   - **像素变化**：每次截图与上一张按 48×48 网格比较 RGB，单通道差 > 24 记为变化格，算出变化占比。
   - **OCR 文字变化**：内置 Tesseract + 中文/英文模型，完全离线；识别两次截图的文字，按字符级编辑距离算出文字变化百分比。
@@ -45,7 +46,7 @@
 
 ## 安装
 
-1. 打开 [Releases](https://github.com/lishaoming314/cloudgame-assistant/releases)，下载最新的 `CloudGameAssistant-2.1.apk`（约 11 MB）。
+1. 打开 [Releases](https://github.com/lishaoming314/cloudgame-assistant/releases)，下载最新的 `CloudGameAssistant-2.1.1.apk`（约 11 MB）。
 2. 允许「安装未知来源应用」后安装。
 3. 首次打开按应用内提示逐项授权。
 
@@ -85,7 +86,7 @@
 
 ```bash
 ./build.sh
-# 产物：build/CloudGameAssistant-2.1.apk（约 11 MB，已签名）
+# 产物：build/CloudGameAssistant-2.1.1.apk（约 11 MB，已签名）
 ```
 
 OCR 依赖由 `fetch-ocr.sh` 自动下载；也可以手动执行：
@@ -119,6 +120,7 @@ java -cp /tmp/td com.dsh.screenwatch.TextDiff
     ├── MainActivity.java         # 权限、选音乐、像素/OCR 开关、参数、作者入口
     ├── ScreenWatchService.java   # 前台服务：截图、双通道对比、响铃、自动停止
     ├── OverlayController.java    # 悬浮倒计时球 + 展开面板
+    ├── ColorBallView.java        # HSV 色球控件（主题色）
     ├── OcrEngine.java            # Tesseract 离线 OCR 封装
     ├── TextDiff.java             # 文字变化占比算法（可单独测试）
     └── PixelDiff.java            # 像素变化占比算法（可单独测试）
