@@ -29,25 +29,27 @@ API = "https://api.github.com"
 UPLOAD = "https://uploads.github.com"
 UA = "screenwatch-publisher/1.0"
 DEFAULT_REPO = "cloudgame-assistant"
-DEFAULT_TAG = "v2.1.1"
+DEFAULT_TAG = "v2.1.2"
 SKIP_DIRS = {".git", "build", "tools", "keystore", ".idea", ".gradle"}
 SKIP_EXT = {".apk", ".zip", ".keystore"}
 
-RELEASE_BODY = """## 云游戏助手 2.1.1
+RELEASE_BODY = """## 云游戏助手 2.1.2
 
 ### 本次更新
-- **主题色球**：应用内拖动 HSV 色球选色，悬浮球、主按钮、通知颜色实时跟随，可一键恢复默认
-- 版本文案更新为 2.1.1（图标保持渐变云朵）
+- 新增「提醒方式」三选一：**播放音乐 / 连续震动 / 音乐 + 震动同时**
+- 连续震动按 0.7 秒振动、0.3 秒停循环，持续 3 分钟后自动停止
+- 选择震动时不需要先选音乐；选音乐但未选文件时会自动改用震动
+- 运行中可以在悬浮球面板/通知里停止提醒
 
 ### 2.1 已有功能
 - 像素变化 + 离线 OCR 文字变化，两个独立开关，可单开或同开
-- 同开时可选「需同时满足」（默认，误报更少）或任一满足
-- 倒计时悬浮球，点击展开截图 / 暂停 / 停止 / 收起
+- 同开时可选「需同时满足」降低误报
+- 倒计时悬浮球 + 主题色球自定义
 - 截图间隔 5 秒 – 10 分钟，提醒后自动停止监测
 - 完全离线，无网络权限
 
 ### 安装
-下载 `CloudGameAssistant-2.1.1.apk`，可覆盖升级 2.1。
+下载 `CloudGameAssistant-2.1.2.apk`，可覆盖升级 2.1.1。
 
 > 每次开始都需要系统录屏授权（Android 10 限制）。
 

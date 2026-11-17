@@ -29,6 +29,8 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.CompoundButton;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -68,6 +70,8 @@ public class MainActivity extends Activity {
     private boolean useOcr = false;
     private boolean requireBoth = true;
     private int ocrThreshold = 30;
+    /** 0 = music, 1 = vibration, 2 = both. */
+    private int alertMode = 0;
     private int accent = 0xFFFF6A00;
     private TextView themePreview;
     private TextView titleView;
@@ -100,6 +104,7 @@ public class MainActivity extends Activity {
         useOcr = prefs.getBoolean("use_ocr", false);
         requireBoth = prefs.getBoolean("require_both", true);
         ocrThreshold = Math.max(10, Math.min(90, prefs.getInt("ocr_threshold", 30)));
+        alertMode = Math.max(0, Math.min(2, prefs.getInt("alert_mode", 0)));
         accent = prefs.getInt("accent_color", 0xFFFF6A00);
         setContentView(buildUi());
     }
@@ -169,7 +174,7 @@ public class MainActivity extends Activity {
         titleView = title;
         root.addView(title);
 
-        TextView sub = text("盯住云游戏排队画面：按像素和/或 OCR 文字判断是否排到队、进入游戏，变化够大就播放本地音乐，响铃 3 分钟后停止。", 13, MUTED, Typeface.NORMAL);
+        TextView sub = text("盯住云游戏排队画面：按像素和/或 OCR 文字判断是否排到队、进入游戏，变化够大就按你选的方式提醒（音乐 / 连续震动 / 同时），3 分钟后停止。", 13, MUTED, Typeface.NORMAL);
         sub.setPadding(0, dp(6), 0, dp(16));
         root.addView(sub);
 
@@ -208,6 +213,35 @@ public class MainActivity extends Activity {
         musicRow.addView(auditionBtn, al);
         music.addView(musicRow);
         root.addView(music);
+
+        // ---- alert mode
+        LinearLayout alert = card();
+        alert.addView(sectionTitle("提醒方式"));
+        RadioGroup alertGroup = new RadioGroup(this);
+        alertGroup.setId(View.generateViewId());
+        alertGroup.setOrientation(RadioGroup.VERTICAL);
+        String[] alertLabels = {"播放音乐（响铃 3 分钟）", "连续震动（持续 3 分钟）", "音乐 + 震动（同时）"};
+        for (int k = 0; k < alertLabels.length; k++) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(alertLabels[k]);
+            rb.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            rb.setPadding(0, dp(4), 0, dp(4));
+            alertGroup.addView(rb);
+        }
+        ((RadioButton) alertGroup.getChildAt(alertMode)).setChecked(true);
+        alertGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            int idx = group.indexOfChild(group.findViewById(checkedId));
+            if (idx >= 0) {
+                alertMode = idx;
+                prefs.edit().putInt("alert_mode", idx).apply();
+            }
+        });
+        alert.addView(alertGroup);
+        TextView alertTip = text("连续震动按 0.7 秒振动 / 0.3 秒停循环，和音乐一样 3 分钟后自动停止。", 12, MUTED, Typeface.NORMAL);
+        alertTip.setPadding(0, dp(4), 0, dp(4));
+        alert.addView(alertTip);
+        root.addView(alert);
 
         // ---- parameters
         LinearLayout params = card();
@@ -411,7 +445,7 @@ public class MainActivity extends Activity {
         // ---- about / author
         LinearLayout about = card();
         about.addView(sectionTitle("关于"));
-        TextView ver = text("云游戏助手 v2.1.1 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
+        TextView ver = text("云游戏助手 v2.1.2 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
         ver.setPadding(0, dp(4), 0, dp(8));
         about.addView(ver);
         Button bili = new Button(this);
@@ -432,6 +466,7 @@ public class MainActivity extends Activity {
                 + "• OCR 完全离线（Tesseract 中文模型），首次识别需加载模型，会慢 1–3 秒。\n"
                 + "• 首次开始会弹出「立即开始录制或投放」的屏幕捕获授权，必须允许，否则无法截图。\n"
                 + "• 截图间隔可设 5 秒～10 分钟；锁屏或熄屏时不截图，亮屏后重新计时。\n"
+                + "• 提醒方式可选音乐、连续震动或两者同时；震动会循环 3 分钟。\n"
                 + "• 音乐走「闹钟」音量通道：请把闹钟/媒体音量调高，勿扰模式下允许闹钟。\n"
                 + "• 小米/OPPO/vivo 等还需在系统设置里允许「自启动 / 后台弹出界面 / 锁屏显示」。", 12, MUTED, Typeface.NORMAL);
         notes.setPadding(0, dp(16), 0, 0);
@@ -672,8 +707,8 @@ public class MainActivity extends Activity {
             toast("至少开启一种识别方式（像素或 OCR）");
             return;
         }
-        if (musicUri() == null) {
-            toast("还没选音乐：可以继续，但触发时只会震动提示");
+        if (alertMode != 1 && musicUri() == null) {
+            toast("还没选音乐：触发时会改用连续震动提醒");
         }
         MediaProjectionManager mpm =
                 (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
@@ -773,7 +808,8 @@ public class MainActivity extends Activity {
                         .putExtra(ScreenWatchService.EXTRA_OCR_THRESHOLD, ocrThreshold)
                         .putExtra(ScreenWatchService.EXTRA_REQUIRE_BOTH, requireBoth)
                         .putExtra(ScreenWatchService.EXTRA_RING_SECONDS, 180)
-                        .putExtra(ScreenWatchService.EXTRA_COLOR, accent);
+                        .putExtra(ScreenWatchService.EXTRA_COLOR, accent)
+                        .putExtra(ScreenWatchService.EXTRA_ALERT_MODE, alertMode);
                 Uri music = musicUri();
                 if (music != null) {
                     i.putExtra(ScreenWatchService.EXTRA_MUSIC, music.toString());

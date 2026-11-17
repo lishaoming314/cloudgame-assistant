@@ -30,6 +30,8 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
@@ -69,6 +71,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String EXTRA_MUSIC = "music";
     public static final String EXTRA_RING_SECONDS = "ringSeconds";
     public static final String EXTRA_COLOR = "accentColor";
+    public static final String EXTRA_ALERT_MODE = "alertMode";
 
     public static final String ACTION_STATS = "com.dsh.screenwatch.action.STATS";
     public static final String EXTRA_RATIO = "ratio";
@@ -146,6 +149,9 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     private OcrEngine ocrEngine;
     private int ringSeconds = 180;
     private int accent = 0xFFFF6A00;
+    /** 0 = music, 1 = vibration, 2 = both. */
+    private int alertMode = 0;
+    private Vibrator vibrator;
     private String musicUri;
 
     private MediaPlayer player;
@@ -221,6 +227,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         ocrThreshold = clamp(intent.getIntExtra(EXTRA_OCR_THRESHOLD, 30), 5, 100);
         maxCaptureSide = useOcr ? 960f : MAX_CAPTURE_SIDE;
         ringSeconds = clamp(intent.getIntExtra(EXTRA_RING_SECONDS, 180), 5, 3600);
+        alertMode = clamp(intent.getIntExtra(EXTRA_ALERT_MODE, 0), 0, 2);
         accent = intent.getIntExtra(EXTRA_COLOR,
                 getSharedPreferences(PREF, MODE_PRIVATE).getInt("accent_color", 0xFFFF6A00));
         musicUri = intent.getStringExtra(EXTRA_MUSIC);
@@ -617,18 +624,25 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         if (ringing) {
             return;
         }
-        if (musicUri == null || musicUri.isEmpty()) {
-            vibrate();
-            toast(String.format(Locale.US, "检测到变化（像素 %.1f%% / 文字 %.0f%%），但还没选择音乐",
+        boolean hasMusic = musicUri != null && !musicUri.isEmpty();
+        boolean wantMusic = alertMode != 1 && hasMusic;
+        boolean wantVibrate = alertMode != 0;
+        if (alertMode != 1 && !hasMusic) {
+            wantVibrate = true;
+            toast(String.format(Locale.US,
+                    "检测到变化（像素 %.1f%% / 文字 %.0f%%），未选音乐，改用连续震动",
                     pixelRatio, textRatio));
+        }
+        if (!wantMusic && !wantVibrate) {
             return;
         }
         ringing = true;
         ringEndAt = SystemClock.elapsedRealtime() + ringSeconds * 1000L;
-        boolean ok = startMusic();
-        if (!ok) {
-            ringing = false;
-            return;
+        if (wantMusic && !startMusic()) {
+            wantVibrate = true;
+        }
+        if (wantVibrate) {
+            startVibration();
         }
         if (autoStopAfterAlert) {
             paused = true;
@@ -643,7 +657,37 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         }
         main.post(this::refreshUiText);
         publishStats();
-        Log.i(TAG, "ring started for " + ringSeconds + "s");
+        Log.i(TAG, "alert started mode=" + alertMode + " music=" + wantMusic
+                + " vibrate=" + wantVibrate + " for " + ringSeconds + "s");
+    }
+
+    private void startVibration() {
+        try {
+            Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            if (v == null || !v.hasVibrator()) {
+                Log.w(TAG, "no vibrator");
+                return;
+            }
+            long[] pattern = new long[]{0, 700, 300};
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                v.vibrate(VibrationEffect.createWaveform(pattern, 0));
+            } else {
+                v.vibrate(pattern, 0);
+            }
+            vibrator = v;
+        } catch (Throwable t) {
+            Log.w(TAG, "vibrate failed: " + t);
+        }
+    }
+
+    private void stopVibration() {
+        if (vibrator != null) {
+            try {
+                vibrator.cancel();
+            } catch (Throwable ignored) {
+            }
+            vibrator = null;
+        }
     }
 
     private boolean startMusic() {
@@ -707,12 +751,13 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     }
 
     private void stopRingingInternal() {
-        if (!ringing && player == null) {
+        if (!ringing && player == null && vibrator == null) {
             releaseWakeLock();
             return;
         }
         ringing = false;
         releasePlayer();
+        stopVibration();
         releaseWakeLock();
         Log.i(TAG, "ring stopped");
     }
@@ -893,8 +938,10 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         }
         if (ringing) {
             long left = Math.max(0, ringEndAt - SystemClock.elapsedRealtime());
-            return String.format(Locale.US, "🔔 可能已进入游戏 · %d:%02d 后停止",
-                    left / 60000, (left / 1000) % 60);
+            String what = alertMode == 1 ? "震动提醒中"
+                    : alertMode == 2 ? "音乐+震动中" : "响铃中";
+            return String.format(Locale.US, "🔔 %s · %d:%02d 后停止",
+                    what, left / 60000, (left / 1000) % 60);
         }
         if (paused) {
             return "⏸ 已暂停";
@@ -1034,7 +1081,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         b.addAction(new Notification.Action.Builder(android.R.drawable.ic_menu_camera,
                 "立即截图", servicePending(ACTION_CAPTURE_NOW, 12)).build());
         b.addAction(new Notification.Action.Builder(android.R.drawable.ic_delete,
-                ringing ? "停铃" : "停止",
+                ringing ? "停止提醒" : "停止",
                 servicePending(ringing ? ACTION_STOP_RING : ACTION_STOP, 13)).build());
         return b.build();
     }
