@@ -1,7 +1,9 @@
 package com.dsh.screenwatch;
 
 import android.app.Activity;
+import android.appwidget.AppWidgetManager;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -76,6 +78,7 @@ public class MainActivity extends Activity {
     private int firstDelaySec = 2;
     private int accent = 0xFFFF6A00;
     private TextView themePreview;
+    private TextView cloudAppState;
     private TextView titleView;
     private View homeView;
     private View settingsView;
@@ -121,6 +124,7 @@ public class MainActivity extends Activity {
         refreshPermissions();
         refreshMusic();
         refreshRunState();
+        refreshCloudApp();
         if (statsReceiver == null) {
             statsReceiver = new BroadcastReceiver() {
                 @Override
@@ -319,6 +323,31 @@ public class MainActivity extends Activity {
         music.addView(musicRow);
         root.addView(music);
 
+        // ---- home-screen widget
+        LinearLayout widgetCard = card();
+        widgetCard.addView(sectionTitle("桌面快捷卡片"));
+        cloudAppState = text("未选择云游戏应用", 13, MUTED, Typeface.NORMAL);
+        cloudAppState.setPadding(0, dp(4), 0, dp(10));
+        widgetCard.addView(cloudAppState);
+        Button chooseApp = new Button(this);
+        chooseApp.setText("选择云游戏应用");
+        chooseApp.setAllCaps(false);
+        chooseApp.setOnClickListener(v -> startActivity(new Intent(this, AppPickerActivity.class)));
+        widgetCard.addView(chooseApp, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        Button pinWidget = new Button(this);
+        pinWidget.setText("添加到桌面");
+        pinWidget.setAllCaps(false);
+        pinWidget.setOnClickListener(v -> requestPinWidget());
+        LinearLayout.LayoutParams pwl = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+        pwl.topMargin = dp(6);
+        widgetCard.addView(pinWidget, pwl);
+        TextView widgetTip = text("桌面卡片点按会启动选中的应用，并出现「开启」悬浮球；点球授权录屏后开始识别。", 12, MUTED, Typeface.NORMAL);
+        widgetTip.setPadding(0, dp(6), 0, dp(4));
+        widgetCard.addView(widgetTip);
+        root.addView(widgetCard);
+
         // ---- recognition advanced
         LinearLayout recogAdv = card();
         recogAdv.addView(sectionTitle("识别高级设置"));
@@ -513,7 +542,7 @@ public class MainActivity extends Activity {
         // ---- about / author
         LinearLayout about = card();
         about.addView(sectionTitle("关于"));
-        TextView ver = text("云游戏助手 v2.1.4 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
+        TextView ver = text("云游戏助手 v2.2.0 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
         ver.setPadding(0, dp(4), 0, dp(8));
         about.addView(ver);
         Button bili = new Button(this);
@@ -544,6 +573,7 @@ public class MainActivity extends Activity {
         refreshPermissions();
         refreshMusic();
         refreshRunState();
+        refreshCloudApp();
     }
 
     private void showHome() {
@@ -718,6 +748,34 @@ public class MainActivity extends Activity {
         musicState.setTextColor(GREEN);
     }
 
+    private void refreshCloudApp() {
+        if (cloudAppState == null) {
+            return;
+        }
+        String pkg = prefs.getString("cloud_app_package", null);
+        if (pkg == null) {
+            cloudAppState.setText("未选择云游戏应用");
+            cloudAppState.setTextColor(MUTED);
+        } else {
+            cloudAppState.setText("已选择：" + prefs.getString("cloud_app_label", pkg));
+            cloudAppState.setTextColor(GREEN);
+        }
+    }
+
+    private void requestPinWidget() {
+        try {
+            AppWidgetManager manager = AppWidgetManager.getInstance(this);
+            ComponentName provider = new ComponentName(this, CloudWidgetProvider.class);
+            if (manager.isRequestPinAppWidgetSupported()) {
+                manager.requestPinAppWidget(provider, null, null);
+            } else {
+                toast("请长按桌面空白处 → 小组件 → 云游戏助手");
+            }
+        } catch (Throwable t) {
+            toast("请手动在桌面小组件里添加");
+        }
+    }
+
     private void refreshRunState() {
         boolean running = ScreenWatchService.isRunning();
         startBtn.setText(running ? "停止监测" : "开始监测");
@@ -883,27 +941,8 @@ public class MainActivity extends Activity {
         }
         if (requestCode == REQ_CAPTURE) {
             if (resultCode == RESULT_OK && data != null) {
-                Intent i = new Intent(this, ScreenWatchService.class)
-                        .setAction(ScreenWatchService.ACTION_START)
-                        .putExtra(ScreenWatchService.EXTRA_CODE, resultCode)
-                        .putExtra(ScreenWatchService.EXTRA_DATA, data)
-                        .putExtra(ScreenWatchService.EXTRA_THRESHOLD, threshold)
-                        .putExtra(ScreenWatchService.EXTRA_INTERVAL_SEC, intervalSec)
-                        .putExtra(ScreenWatchService.EXTRA_AUTO_STOP, autoStop)
-                        .putExtra(ScreenWatchService.EXTRA_USE_PIXEL, usePixel)
-                        .putExtra(ScreenWatchService.EXTRA_USE_OCR, useOcr)
-                        .putExtra(ScreenWatchService.EXTRA_OCR_THRESHOLD, ocrThreshold)
-                        .putExtra(ScreenWatchService.EXTRA_REQUIRE_BOTH, requireBoth)
-                        .putExtra(ScreenWatchService.EXTRA_RING_SECONDS, 180)
-                        .putExtra(ScreenWatchService.EXTRA_COLOR, accent)
-                        .putExtra(ScreenWatchService.EXTRA_ALERT_MODE, alertMode)
-                        .putExtra(ScreenWatchService.EXTRA_FIRST_DELAY_SEC, firstDelaySec);
-                Uri music = musicUri();
-                if (music != null) {
-                    i.putExtra(ScreenWatchService.EXTRA_MUSIC, music.toString());
-                }
                 try {
-                    startForegroundService(i);
+                    startForegroundService(StartIntent.build(this, resultCode, data));
                 } catch (Throwable t) {
                     toast("启动服务失败：" + t.getMessage());
                 }

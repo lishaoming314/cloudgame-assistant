@@ -35,6 +35,37 @@
             </intent-filter>
         </activity>
 
+
+        <activity
+            android:name=".AppPickerActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:label="选择云游戏应用"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name=".CloudLaunchActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <activity
+            android:name=".CaptureRequestActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <receiver
+            android:name=".CloudWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/cloud_widget_info" />
+        </receiver>
+
         <service
             android:name=".ScreenWatchService"
             android:exported="false"

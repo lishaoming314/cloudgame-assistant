@@ -58,6 +58,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String ACTION_CAPTURE_NOW = "com.dsh.screenwatch.action.CAPTURE_NOW";
     public static final String ACTION_STOP_RING = "com.dsh.screenwatch.action.STOP_RING";
     public static final String ACTION_SET_THEME = "com.dsh.screenwatch.action.SET_THEME";
+    public static final String ACTION_IDLE = "com.dsh.screenwatch.action.IDLE";
 
     public static final String EXTRA_CODE = "code";
     public static final String EXTRA_DATA = "data";
@@ -123,12 +124,14 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     private boolean hasBaseline;
 
     private volatile boolean running;
+    private volatile boolean idle;
     private volatile boolean paused;
     private volatile boolean screenOff;
     private volatile boolean ringing;
     private volatile boolean stopping;
     /** Retry the pending capture quickly (frame not ready yet / display just rebuilt). */
     private volatile boolean retrySoon;
+    private volatile boolean requestingStart;
 
     private float lastRatio;
     private long lastCaptureAt;
@@ -206,6 +209,9 @@ public class ScreenWatchService extends Service implements OverlayController.Act
                     stopSelf();
                 }
                 break;
+            case ACTION_IDLE:
+                handleIdle();
+                break;
             default:
                 stopSelf();
                 break;
@@ -273,6 +279,8 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         }, main);
 
         running = true;
+        idle = false;
+        requestingStart = false;
         stopping = false;
         paused = false;
         hasBaseline = false;
@@ -294,6 +302,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
             return;
         }
         overlay.show();
+        overlay.setIdle(false);
         overlay.setAccent(accent);
         overlay.setPaused(false);
         main.removeCallbacks(tick);
@@ -847,6 +856,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         }
         stopping = true;
         running = false;
+        idle = false;
         Log.i(TAG, "stopping: " + reason);
         if (overlay != null) {
             overlay.hide();
@@ -893,6 +903,41 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     // ---------------------------------------------------------------- ui / notification
 
+    private void handleIdle() {
+        if (running) {
+            return; // already monitoring, keep it untouched
+        }
+        accent = getSharedPreferences(PREF, MODE_PRIVATE).getInt("accent_color", accent);
+        startForegroundCompat("待开启：点悬浮球开始识别");
+        idle = true;
+        stopping = false;
+        overlay.show();
+        overlay.setIdle(true);
+        overlay.setAccent(accent);
+        overlay.setPaused(false);
+        overlay.setMode(OverlayController.MODE_NORMAL);
+        main.removeCallbacks(tick);
+        main.post(tick);
+        refreshUiText();
+    }
+
+    @Override
+    public void requestStart() {
+        if (requestingStart) {
+            return;
+        }
+        requestingStart = true;
+        main.postDelayed(() -> requestingStart = false, 15000);
+        try {
+            Intent i = new Intent(this, CaptureRequestActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Throwable t) {
+            Log.e(TAG, "requestStart failed", t);
+            toast("无法打开录屏授权页：" + t.getClass().getSimpleName());
+        }
+    }
+
     private void handleTheme(Intent intent) {
         int color = intent.getIntExtra(EXTRA_COLOR, accent);
         accent = color;
@@ -907,7 +952,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
-            if (!running) {
+            if (!running && !idle) {
                 return;
             }
             refreshUiText();
@@ -938,7 +983,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     private String statusLine() {
         if (!running) {
-            return "已停止";
+            return idle ? "待开启 · 点悬浮球开始识别" : "已停止";
         }
         if (ringing) {
             long left = Math.max(0, ringEndAt - SystemClock.elapsedRealtime());
@@ -959,6 +1004,9 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     /** Coarse text for the notification: it must not change every second. */
     private String notificationText() {
+        if (idle && !running) {
+            return "待开启：点悬浮球开始识别";
+        }
         if (ringing) {
             return statusLine();
         }
@@ -977,6 +1025,9 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     /** Text inside the floating ball: seconds until the next capture. */
     private String ballText() {
+        if (idle && !running) {
+            return "开启";
+        }
         if (!running) {
             return "—";
         }
@@ -1010,6 +1061,9 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     }
 
     private String detailLine() {
+        if (idle && !running) {
+            return "点悬浮球授权录屏后开始监测";
+        }
         StringBuilder b = new StringBuilder();
         if (usePixel) {
             b.append(String.format(Locale.US, "像素 %.1f%%", lastRatio));
@@ -1032,6 +1086,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         SharedPreferences.Editor e = getSharedPreferences(PREF, MODE_PRIVATE).edit();
         e.putFloat("last_ratio", lastRatio)
                 .putFloat("last_text_ratio", lastTextRatio)
+                .putBoolean("idle", idle)
                 .putLong("last_capture_at", lastCaptureAt)
                 .putBoolean("running", running)
                 .putBoolean("ringing", ringing)
@@ -1080,6 +1135,17 @@ public class ScreenWatchService extends Service implements OverlayController.Act
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setContentIntent(pi)
                 .setColor(accent);
+        if (idle && !running) {
+            Intent req = new Intent(this, CaptureRequestActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            PendingIntent rp = PendingIntent.getActivity(this, 21, req,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            b.addAction(new Notification.Action.Builder(android.R.drawable.ic_media_play,
+                    "开启", rp).build());
+            b.addAction(new Notification.Action.Builder(android.R.drawable.ic_delete,
+                    "停止", servicePending(ACTION_STOP, 22)).build());
+            return b.build();
+        }
         b.addAction(new Notification.Action.Builder(android.R.drawable.ic_media_pause,
                 paused ? "继续" : "暂停", servicePending(ACTION_TOGGLE_PAUSE, 11)).build());
         b.addAction(new Notification.Action.Builder(android.R.drawable.ic_menu_camera,

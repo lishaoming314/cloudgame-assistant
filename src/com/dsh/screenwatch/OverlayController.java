@@ -29,6 +29,8 @@ final class OverlayController {
         void togglePause();
 
         void stopAll();
+
+        void requestStart();
     }
 
     static final int MODE_NORMAL = 0;
@@ -52,6 +54,7 @@ final class OverlayController {
     private boolean shown;
     private int accent = 0xFFFF6A00;
     private int mode = MODE_NORMAL;
+    private boolean idle;
     private GradientDrawable panelBg;
     private TextView titleText;
 
@@ -178,6 +181,10 @@ final class OverlayController {
         }
         return Color.rgb(Math.min(255, Math.round(r)), Math.min(255, Math.round(g)),
                 Math.min(255, Math.round(b)));
+    }
+
+    void setIdle(boolean idle) {
+        this.idle = idle;
     }
 
     void setPaused(boolean paused) {
@@ -338,7 +345,11 @@ final class OverlayController {
                         return true;
                     case MotionEvent.ACTION_UP:
                         if (!moved) {
-                            togglePanel();
+                            if (idle) {
+                                actions.requestStart();
+                            } else {
+                                togglePanel();
+                            }
                         }
                         return true;
                     case MotionEvent.ACTION_CANCEL:
