@@ -29,24 +29,25 @@ API = "https://api.github.com"
 UPLOAD = "https://uploads.github.com"
 UA = "screenwatch-publisher/1.0"
 DEFAULT_REPO = "cloudgame-assistant"
-DEFAULT_TAG = "v2.1.3"
+DEFAULT_TAG = "v2.1.4"
 SKIP_DIRS = {".git", "build", "tools", "keystore", ".idea", ".gradle"}
 SKIP_EXT = {".apk", ".zip", ".keystore"}
 
-RELEASE_BODY = """## 云游戏助手 2.1.3
+RELEASE_BODY = """## 云游戏助手 2.1.4
 
 ### 本次更新
-- 新增「首次截图延迟」（0–60 秒）：点开始后等这么久截第一张作基准，第二张才出变化百分比
-- 提醒方式保留三选一：播放音乐 / 连续震动 / 音乐 + 震动同时（均 3 分钟自动停止）
-- 版本号 2.1.3
+- **首页精简**：只保留「开始监测」、识别方式（像素 / OCR 开关）、提醒方式（音乐 / 震动 / 同时）
+- 其余功能移到「更多设置」二级页：权限、本地音乐、识别阈值、截图间隔、首次延迟、自动停止、运行状态、主题色、关于
+- 二级页支持系统返回键回到首页
 
 ### 已有功能
-- 像素变化 + 离线 OCR 文字变化，两个独立开关，可单开或同开
-- 倒计时悬浮球、主题色球自定义、截图间隔 5 秒–10 分钟
-- 提醒后自动停止监测，完全离线，无网络权限
+- 像素 + 离线 OCR 双识别，可单开或同开
+- 倒计时悬浮球、主题色球、提醒方式三选一
+- 截图间隔 5 秒–10 分钟，首次截图延迟 0–60 秒
+- 完全离线，无网络权限
 
 ### 安装
-下载 `CloudGameAssistant-2.1.3.apk`，可覆盖升级 2.1.2。
+下载 `CloudGameAssistant-2.1.4.apk`，可覆盖升级 2.1.3。
 
 > 每次开始都需要系统录屏授权（Android 10 限制）。
 
