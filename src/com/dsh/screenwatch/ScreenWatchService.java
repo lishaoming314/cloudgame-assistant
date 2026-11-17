@@ -72,6 +72,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String EXTRA_RING_SECONDS = "ringSeconds";
     public static final String EXTRA_COLOR = "accentColor";
     public static final String EXTRA_ALERT_MODE = "alertMode";
+    public static final String EXTRA_FIRST_DELAY_SEC = "firstDelaySec";
 
     public static final String ACTION_STATS = "com.dsh.screenwatch.action.STATS";
     public static final String EXTRA_RATIO = "ratio";
@@ -136,6 +137,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     private int threshold = 15;
     private long intervalMs = 60_000L;
+    private long firstDelayMs = 2000L;
     private boolean autoStopAfterAlert = true;
     private boolean usePixel = true;
     private boolean useOcr = false;
@@ -228,6 +230,8 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         maxCaptureSide = useOcr ? 960f : MAX_CAPTURE_SIDE;
         ringSeconds = clamp(intent.getIntExtra(EXTRA_RING_SECONDS, 180), 5, 3600);
         alertMode = clamp(intent.getIntExtra(EXTRA_ALERT_MODE, 0), 0, 2);
+        int firstDelaySec = clamp(intent.getIntExtra(EXTRA_FIRST_DELAY_SEC, 2), 0, 60);
+        firstDelayMs = Math.max(100L, firstDelaySec * 1000L);
         accent = intent.getIntExtra(EXTRA_COLOR,
                 getSharedPreferences(PREF, MODE_PRIVATE).getInt("accent_color", 0xFFFF6A00));
         musicUri = intent.getStringExtra(EXTRA_MUSIC);
@@ -294,7 +298,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         overlay.setPaused(false);
         main.removeCallbacks(tick);
         main.post(tick);
-        scheduleCapture(1500);
+        scheduleCapture(firstDelayMs);
         refreshUiText();
         String mode = usePixel && useOcr ? (requireBoth ? "像素+文字（同时满足）" : "像素+文字（任一满足）")
                 : usePixel ? "仅像素" : "仅文字 OCR";

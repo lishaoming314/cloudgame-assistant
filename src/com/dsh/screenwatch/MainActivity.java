@@ -72,6 +72,7 @@ public class MainActivity extends Activity {
     private int ocrThreshold = 30;
     /** 0 = music, 1 = vibration, 2 = both. */
     private int alertMode = 0;
+    private int firstDelaySec = 2;
     private int accent = 0xFFFF6A00;
     private TextView themePreview;
     private TextView titleView;
@@ -105,6 +106,7 @@ public class MainActivity extends Activity {
         requireBoth = prefs.getBoolean("require_both", true);
         ocrThreshold = Math.max(10, Math.min(90, prefs.getInt("ocr_threshold", 30)));
         alertMode = Math.max(0, Math.min(2, prefs.getInt("alert_mode", 0)));
+        firstDelaySec = Math.max(0, Math.min(60, prefs.getInt("first_delay_sec", 2)));
         accent = prefs.getInt("accent_color", 0xFFFF6A00);
         setContentView(buildUi());
     }
@@ -295,6 +297,33 @@ public class MainActivity extends Activity {
         });
         params.addView(intervalBar);
 
+        TextView firstDelayLabel = text("首次截图延迟：" + firstDelaySec + " 秒", 14, TEXT, Typeface.BOLD);
+        firstDelayLabel.setPadding(0, dp(10), 0, 0);
+        params.addView(firstDelayLabel);
+        SeekBar firstDelayBar = new SeekBar(this);
+        firstDelayBar.setMax(60);
+        firstDelayBar.setProgress(firstDelaySec);
+        firstDelayBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                firstDelaySec = progress;
+                firstDelayLabel.setText("首次截图延迟：" + firstDelaySec + " 秒");
+                prefs.edit().putInt("first_delay_sec", firstDelaySec).apply();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        params.addView(firstDelayBar);
+        TextView firstDelayTip = text("点开始后等这么久截第一张（只作基准），下一张才出变化百分比。", 12, MUTED, Typeface.NORMAL);
+        firstDelayTip.setPadding(0, dp(2), 0, 0);
+        params.addView(firstDelayTip);
+
         LinearLayout autoRow = new LinearLayout(this);
         autoRow.setOrientation(LinearLayout.HORIZONTAL);
         autoRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -445,7 +474,7 @@ public class MainActivity extends Activity {
         // ---- about / author
         LinearLayout about = card();
         about.addView(sectionTitle("关于"));
-        TextView ver = text("云游戏助手 v2.1.2 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
+        TextView ver = text("云游戏助手 v2.1.3 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
         ver.setPadding(0, dp(4), 0, dp(8));
         about.addView(ver);
         Button bili = new Button(this);
@@ -809,7 +838,8 @@ public class MainActivity extends Activity {
                         .putExtra(ScreenWatchService.EXTRA_REQUIRE_BOTH, requireBoth)
                         .putExtra(ScreenWatchService.EXTRA_RING_SECONDS, 180)
                         .putExtra(ScreenWatchService.EXTRA_COLOR, accent)
-                        .putExtra(ScreenWatchService.EXTRA_ALERT_MODE, alertMode);
+                        .putExtra(ScreenWatchService.EXTRA_ALERT_MODE, alertMode)
+                        .putExtra(ScreenWatchService.EXTRA_FIRST_DELAY_SEC, firstDelaySec);
                 Uri music = musicUri();
                 if (music != null) {
                     i.putExtra(ScreenWatchService.EXTRA_MUSIC, music.toString());

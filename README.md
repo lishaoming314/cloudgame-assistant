@@ -23,6 +23,7 @@
 - **自动响铃**：像素占比 > 15%（可调）或文字变化 > 30%（可调 10%–90%）→ 按选择的方式提醒。
 - **提醒后自动停止**（可关）：触发后暂停截图，响铃结束即停止监测，避免进入游戏后每分钟重复响铃。
 - **截图间隔 5 秒–10 分钟**：滑杆按秒调节，默认 60 秒；开启 OCR 时建议 ≥10 秒（每帧识别需要 1–3 秒）。
+- **首次截图延迟 0–60 秒**：点「开始监测」后等这么久截第一张作基准，第二张才开始出变化百分比。
 - **只保留两张截图**：上一张 / 当前这张（缓存 `snapshots/prev.jpg`、`cur.jpg`，每轮覆盖）。
 - **完全离线**：OCR 模型随 APK 打包，不联网、不上传。
 - **后台保活**：mediaProjection 前台服务 + 常驻通知 + 电池优化豁免引导 + 响铃唤醒锁。
@@ -47,7 +48,7 @@
 
 ## 安装
 
-1. 打开 [Releases](https://github.com/lishaoming314/cloudgame-assistant/releases)，下载最新的 `CloudGameAssistant-2.1.2.apk`（约 11 MB）。
+1. 打开 [Releases](https://github.com/lishaoming314/cloudgame-assistant/releases)，下载最新的 `CloudGameAssistant-2.1.3.apk`（约 11 MB）。
 2. 允许「安装未知来源应用」后安装。
 3. 首次打开按应用内提示逐项授权。
 
@@ -87,7 +88,7 @@
 
 ```bash
 ./build.sh
-# 产物：build/CloudGameAssistant-2.1.2.apk（约 11 MB，已签名）
+# 产物：build/CloudGameAssistant-2.1.3.apk（约 11 MB，已签名）
 ```
 
 OCR 依赖由 `fetch-ocr.sh` 自动下载；也可以手动执行：
