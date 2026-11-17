@@ -264,6 +264,16 @@ public class MainActivity extends Activity {
         mlp.topMargin = dp(4);
         home.addView(more, mlp);
 
+        Button network = new Button(this);
+        network.setText("网络情况 ›");
+        network.setAllCaps(false);
+        network.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        network.setOnClickListener(v -> startActivity(new Intent(this, NetworkActivity.class)));
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        nlp.topMargin = dp(2);
+        home.addView(network, nlp);
+
         // ================= settings (secondary page) =================
         ScrollView settingsScroll = new ScrollView(this);
         settingsScroll.setBackgroundColor(BG);
@@ -542,7 +552,7 @@ public class MainActivity extends Activity {
         // ---- about / author
         LinearLayout about = card();
         about.addView(sectionTitle("关于"));
-        TextView ver = text("云游戏助手 v2.2.1 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
+        TextView ver = text("云游戏助手 v2.3.0 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
         ver.setPadding(0, dp(4), 0, dp(8));
         about.addView(ver);
         Button bili = new Button(this);
@@ -556,6 +566,7 @@ public class MainActivity extends Activity {
         TextView notes = text("提示：\n"
                 + "• 像素与 OCR 是两个独立开关，可单开也可同开；同开时可选“需同时满足”降低误报。\n"
                 + "• OCR 完全离线（Tesseract 中文模型），首次识别需加载模型，会慢 1–3 秒。\n"
+                + "• 「网络情况」的延迟测量会访问所选云服务首页；应用流量来自系统统计，均不上传数据。\n"
                 + "• 首次开始会弹出「立即开始录制或投放」的屏幕捕获授权，必须允许，否则无法截图。\n"
                 + "• 提醒方式可选音乐、连续震动或两者同时；震动会循环 3 分钟。\n"
                 + "• 音乐走「闹钟」音量通道：请把闹钟/媒体音量调高，勿扰模式下允许闹钟。\n"

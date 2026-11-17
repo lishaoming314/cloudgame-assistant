@@ -116,7 +116,7 @@ final class OverlayController {
         }
     }
 
-    void setBallText(String text) {
+    void setBallText(CharSequence text) {
         if (ball != null) {
             ball.setText(text);
         }

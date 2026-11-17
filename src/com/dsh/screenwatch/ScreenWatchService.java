@@ -30,6 +30,9 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.style.RelativeSizeSpan;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.util.DisplayMetrics;
@@ -59,6 +62,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String ACTION_STOP_RING = "com.dsh.screenwatch.action.STOP_RING";
     public static final String ACTION_SET_THEME = "com.dsh.screenwatch.action.SET_THEME";
     public static final String ACTION_IDLE = "com.dsh.screenwatch.action.IDLE";
+    public static final String ACTION_NETWORK_CONFIG = "com.dsh.screenwatch.action.NETWORK_CONFIG";
 
     public static final String EXTRA_CODE = "code";
     public static final String EXTRA_DATA = "data";
@@ -74,6 +78,8 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String EXTRA_COLOR = "accentColor";
     public static final String EXTRA_ALERT_MODE = "alertMode";
     public static final String EXTRA_FIRST_DELAY_SEC = "firstDelaySec";
+    public static final String EXTRA_SHOW_LATENCY = "showLatency";
+    public static final String EXTRA_LATENCY_TARGET = "latencyTarget";
 
     public static final String ACTION_STATS = "com.dsh.screenwatch.action.STATS";
     public static final String EXTRA_RATIO = "ratio";
@@ -152,6 +158,12 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     private String prevText;
     private boolean hasTextBaseline;
     private OcrEngine ocrEngine;
+
+    private HandlerThread netThread;
+    private Handler netHandler;
+    private boolean showLatency;
+    private String latencyTarget = "aliyun";
+    private int lastLatency = -1;
     private int ringSeconds = 180;
     private int accent = 0xFFFF6A00;
     /** 0 = music, 1 = vibration, 2 = both. */
@@ -176,6 +188,9 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         captureThread = new HandlerThread("capture");
         captureThread.start();
         captureHandler = new Handler(captureThread.getLooper());
+        netThread = new HandlerThread("netprobe");
+        netThread.start();
+        netHandler = new Handler(netThread.getLooper());
         overlay = new OverlayController(this, this);
         registerScreenReceiver();
     }
@@ -212,6 +227,9 @@ public class ScreenWatchService extends Service implements OverlayController.Act
             case ACTION_IDLE:
                 handleIdle();
                 break;
+            case ACTION_NETWORK_CONFIG:
+                handleNetworkConfig(intent);
+                break;
             default:
                 stopSelf();
                 break;
@@ -238,6 +256,9 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         alertMode = clamp(intent.getIntExtra(EXTRA_ALERT_MODE, 0), 0, 2);
         int firstDelaySec = clamp(intent.getIntExtra(EXTRA_FIRST_DELAY_SEC, 2), 0, 60);
         firstDelayMs = Math.max(100L, firstDelaySec * 1000L);
+        showLatency = getSharedPreferences(PREF, MODE_PRIVATE).getBoolean("ball_latency", false);
+        latencyTarget = getSharedPreferences(PREF, MODE_PRIVATE)
+                .getString("latency_target", "aliyun");
         accent = intent.getIntExtra(EXTRA_COLOR,
                 getSharedPreferences(PREF, MODE_PRIVATE).getInt("accent_color", 0xFFFF6A00));
         musicUri = intent.getStringExtra(EXTRA_MUSIC);
@@ -311,6 +332,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         refreshUiText();
         String mode = usePixel && useOcr ? (requireBoth ? "像素+文字（同时满足）" : "像素+文字（任一满足）")
                 : usePixel ? "仅像素" : "仅文字 OCR";
+        startLatencyProbe();
         toast(String.format(Locale.US, "云游戏助手已开始（%s），每 %d 秒检测一次", mode, intervalMs / 1000));
     }
 
@@ -347,6 +369,10 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         if (captureThread != null) {
             captureThread.quitSafely();
             captureThread = null;
+        }
+        if (netThread != null) {
+            netThread.quitSafely();
+            netThread = null;
         }
         instance = null;
         SharedPreferences.Editor e = getSharedPreferences(PREF, MODE_PRIVATE).edit();
@@ -866,6 +892,10 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         if (captureHandler != null) {
             captureHandler.removeCallbacksAndMessages(null);
         }
+        if (netHandler != null) {
+            netHandler.removeCallbacks(latencyRunnable);
+        }
+        lastLatency = -1;
         synchronized (captureLock) {
             releaseVirtualDisplay();
         }
@@ -902,6 +932,49 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     }
 
     // ---------------------------------------------------------------- ui / notification
+
+    private final Runnable latencyRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!showLatency) {
+                return;
+            }
+            int ms = NetProbe.latencyMs(NetProbe.endpoint(latencyTarget).url);
+            lastLatency = ms;
+            main.post(ScreenWatchService.this::refreshUiText);
+            if (netHandler != null && showLatency) {
+                netHandler.postDelayed(this, 10_000);
+            }
+        }
+    };
+
+    private void startLatencyProbe() {
+        if (netHandler == null) {
+            return;
+        }
+        netHandler.removeCallbacks(latencyRunnable);
+        if (!showLatency) {
+            lastLatency = -1;
+            main.post(this::refreshUiText);
+            return;
+        }
+        netHandler.post(latencyRunnable);
+    }
+
+    private void handleNetworkConfig(Intent intent) {
+        showLatency = intent.getBooleanExtra(EXTRA_SHOW_LATENCY, showLatency);
+        String target = intent.getStringExtra(EXTRA_LATENCY_TARGET);
+        if (target != null && !target.isEmpty()) {
+            latencyTarget = target;
+        }
+        getSharedPreferences(PREF, MODE_PRIVATE).edit()
+                .putBoolean("ball_latency", showLatency)
+                .putString("latency_target", latencyTarget)
+                .apply();
+        startLatencyProbe();
+        lastNotifText = "";
+        refreshUiText();
+    }
 
     private void handleIdle() {
         if (running) {
@@ -1024,7 +1097,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     }
 
     /** Text inside the floating ball: seconds until the next capture. */
-    private String ballText() {
+    private CharSequence ballText() {
         if (idle && !running) {
             return "开启";
         }
@@ -1041,7 +1114,15 @@ public class ScreenWatchService extends Service implements OverlayController.Act
             return "zZ";
         }
         long left = Math.max(0, nextCaptureAt - SystemClock.uptimeMillis());
-        return String.valueOf((left + 999) / 1000);
+        String base = String.valueOf((left + 999) / 1000);
+        if (showLatency && lastLatency > 0) {
+            String text = base + "\n" + lastLatency + "ms";
+            SpannableString sp = new SpannableString(text);
+            sp.setSpan(new RelativeSizeSpan(0.52f), base.length(), text.length(),
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            return sp;
+        }
+        return base;
     }
 
     private int ballMode() {
@@ -1074,6 +1155,11 @@ public class ScreenWatchService extends Service implements OverlayController.Act
             b.append(String.format(Locale.US, " · 文字 %.0f%%", lastTextRatio));
         } else {
             b.append(" · 文字关");
+        }
+        if (showLatency) {
+            b.append(lastLatency > 0
+                    ? String.format(Locale.US, " · 延迟 %dms", lastLatency)
+                    : " · 延迟测速中");
         }
         b.append(String.format(Locale.US, " · 阈值 %d%%", threshold));
         if (useOcr) {
