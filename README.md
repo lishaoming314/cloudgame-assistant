@@ -53,7 +53,7 @@
 
 ## 安装
 
-1. 打开 [Releases](https://github.com/lishaoming314/cloudgame-assistant/releases)，下载最新的 `CloudGameAssistant-2.3.0.apk`（约 11 MB）。
+1. 打开 [Releases](https://github.com/lishaoming314/cloudgame-assistant/releases)，下载最新的 `CloudGameAssistant-2.3.1.apk`（约 11 MB）。
 2. 允许「安装未知来源应用」后安装。
 3. 首次打开按应用内提示逐项授权。
 
@@ -95,7 +95,7 @@
 
 ```bash
 ./build.sh
-# 产物：build/CloudGameAssistant-2.3.0.apk（约 11 MB，已签名）
+# 产物：build/CloudGameAssistant-2.3.1.apk（约 11 MB，已签名）
 ```
 
 OCR 依赖由 `fetch-ocr.sh` 自动下载；也可以手动执行：

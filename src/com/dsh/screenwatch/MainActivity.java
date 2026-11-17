@@ -227,6 +227,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rlp.topMargin = dp(18);
+        rlp.bottomMargin = dp(14);
         home.addView(recog, rlp);
 
         LinearLayout alert = card();
@@ -552,7 +553,7 @@ public class MainActivity extends Activity {
         // ---- about / author
         LinearLayout about = card();
         about.addView(sectionTitle("关于"));
-        TextView ver = text("云游戏助手 v2.3.0 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
+        TextView ver = text("云游戏助手 v2.3.1 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
         ver.setPadding(0, dp(4), 0, dp(8));
         about.addView(ver);
         Button bili = new Button(this);

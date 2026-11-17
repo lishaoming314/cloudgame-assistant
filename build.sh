@@ -51,8 +51,8 @@ fi
   "${RES_ARGS[@]}" \
   "${ASSET_ARGS[@]}" \
   --java "$OUT/gen" \
-  --version-code 10 \
-  --version-name 2.3.0 \
+  --version-code 11 \
+  --version-name 2.3.1 \
   --auto-add-overlay
 
 # ---------- compile java ----------
@@ -115,7 +115,7 @@ if [ ! -f "$KS" ]; then
     -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ScreenWatch, O=DSH, C=CN" >/dev/null 2>&1
   echo "== created keystore/debug.keystore (password: android)"
 fi
-APK="$OUT/CloudGameAssistant-2.3.0.apk"
+APK="$OUT/CloudGameAssistant-2.3.1.apk"
 "$BT_DIR/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
   --v1-signing-enabled true --v2-signing-enabled true \
   --out "$APK" "$OUT/aligned.apk"
