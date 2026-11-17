@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_desc">云游戏助手：定时在屏幕上滑动几下，防止云游戏把长时间不操作判定为下线。只执行滑动手势，不读取屏幕内容。</string>
+</resources>

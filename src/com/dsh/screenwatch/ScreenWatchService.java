@@ -63,6 +63,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String ACTION_SET_THEME = "com.dsh.screenwatch.action.SET_THEME";
     public static final String ACTION_IDLE = "com.dsh.screenwatch.action.IDLE";
     public static final String ACTION_NETWORK_CONFIG = "com.dsh.screenwatch.action.NETWORK_CONFIG";
+    public static final String ACTION_SWIPE_CONFIG = "com.dsh.screenwatch.action.SWIPE_CONFIG";
 
     public static final String EXTRA_CODE = "code";
     public static final String EXTRA_DATA = "data";
@@ -80,6 +81,10 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     public static final String EXTRA_FIRST_DELAY_SEC = "firstDelaySec";
     public static final String EXTRA_SHOW_LATENCY = "showLatency";
     public static final String EXTRA_LATENCY_TARGET = "latencyTarget";
+    public static final String EXTRA_SWIPE_ENABLED = "swipeEnabled";
+    public static final String EXTRA_SWIPE_INTERVAL_MIN = "swipeIntervalMin";
+    public static final String EXTRA_SWIPE_COUNT = "swipeCount";
+    public static final String EXTRA_SWIPE_DIRECTION = "swipeDirection";
 
     public static final String ACTION_STATS = "com.dsh.screenwatch.action.STATS";
     public static final String EXTRA_RATIO = "ratio";
@@ -110,6 +115,10 @@ public class ScreenWatchService extends Service implements OverlayController.Act
 
     public static ScreenWatchService get() {
         return instance;
+    }
+
+    public static boolean isAlive() {
+        return instance != null;
     }
 
     private final Object captureLock = new Object();
@@ -164,6 +173,11 @@ public class ScreenWatchService extends Service implements OverlayController.Act
     private boolean showLatency;
     private String latencyTarget = "aliyun";
     private int lastLatency = -1;
+
+    private boolean swipeEnabled;
+    private int swipeIntervalMin = 10;
+    private int swipeCount = 2;
+    private int swipeDirection;
     private int ringSeconds = 180;
     private int accent = 0xFFFF6A00;
     /** 0 = music, 1 = vibration, 2 = both. */
@@ -229,6 +243,9 @@ public class ScreenWatchService extends Service implements OverlayController.Act
                 break;
             case ACTION_NETWORK_CONFIG:
                 handleNetworkConfig(intent);
+                break;
+            case ACTION_SWIPE_CONFIG:
+                handleSwipeConfig(intent);
                 break;
             default:
                 stopSelf();
@@ -333,6 +350,8 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         String mode = usePixel && useOcr ? (requireBoth ? "像素+文字（同时满足）" : "像素+文字（任一满足）")
                 : usePixel ? "仅像素" : "仅文字 OCR";
         startLatencyProbe();
+        loadSwipePrefs();
+        startSwipeSchedule();
         toast(String.format(Locale.US, "云游戏助手已开始（%s），每 %d 秒检测一次", mode, intervalMs / 1000));
     }
 
@@ -374,6 +393,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
             netThread.quitSafely();
             netThread = null;
         }
+        main.removeCallbacks(swipeRunnable);
         instance = null;
         SharedPreferences.Editor e = getSharedPreferences(PREF, MODE_PRIVATE).edit();
         e.putBoolean("running", false).apply();
@@ -895,6 +915,7 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         if (netHandler != null) {
             netHandler.removeCallbacks(latencyRunnable);
         }
+        main.removeCallbacks(swipeRunnable);
         lastLatency = -1;
         synchronized (captureLock) {
             releaseVirtualDisplay();
@@ -961,6 +982,56 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         netHandler.post(latencyRunnable);
     }
 
+    private final Runnable swipeRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!swipeEnabled) {
+                return;
+            }
+            if (!screenOff) {
+                SwipeAccessibilityService service = SwipeAccessibilityService.instance;
+                if (service != null) {
+                    service.swipe(swipeDirection, swipeCount);
+                }
+            }
+            main.postDelayed(this, Math.max(1, swipeIntervalMin) * 60_000L);
+        }
+    };
+
+    private void loadSwipePrefs() {
+        SharedPreferences p = getSharedPreferences(PREF, MODE_PRIVATE);
+        swipeEnabled = p.getBoolean("swipe_enabled", false);
+        swipeIntervalMin = Math.max(1, Math.min(60, p.getInt("swipe_interval_min", 10)));
+        swipeCount = Math.max(1, Math.min(5, p.getInt("swipe_count", 2)));
+        swipeDirection = Math.max(0, Math.min(2, p.getInt("swipe_direction", 0)));
+    }
+
+    private void startSwipeSchedule() {
+        main.removeCallbacks(swipeRunnable);
+        if (!swipeEnabled) {
+            return;
+        }
+        // First swipe after 15 seconds, then the configured interval.
+        main.postDelayed(swipeRunnable, 15_000L);
+    }
+
+    private void handleSwipeConfig(Intent intent) {
+        swipeEnabled = intent.getBooleanExtra(EXTRA_SWIPE_ENABLED, swipeEnabled);
+        swipeIntervalMin = clamp(intent.getIntExtra(EXTRA_SWIPE_INTERVAL_MIN, swipeIntervalMin), 1, 60);
+        swipeCount = clamp(intent.getIntExtra(EXTRA_SWIPE_COUNT, swipeCount), 1, 5);
+        swipeDirection = clamp(intent.getIntExtra(EXTRA_SWIPE_DIRECTION, swipeDirection), 0, 2);
+        getSharedPreferences(PREF, MODE_PRIVATE).edit()
+                .putBoolean("swipe_enabled", swipeEnabled)
+                .putInt("swipe_interval_min", swipeIntervalMin)
+                .putInt("swipe_count", swipeCount)
+                .putInt("swipe_direction", swipeDirection)
+                .apply();
+        if (swipeEnabled && !SwipeAccessibilityService.isEnabled(this)) {
+            toast("请先在「更多设置 → 防下线滑动」里开启无障碍服务");
+        }
+        startSwipeSchedule();
+    }
+
     private void handleNetworkConfig(Intent intent) {
         showLatency = intent.getBooleanExtra(EXTRA_SHOW_LATENCY, showLatency);
         String target = intent.getStringExtra(EXTRA_LATENCY_TARGET);
@@ -992,6 +1063,8 @@ public class ScreenWatchService extends Service implements OverlayController.Act
         main.removeCallbacks(tick);
         main.post(tick);
         refreshUiText();
+        loadSwipePrefs();
+        startSwipeSchedule();
     }
 
     @Override

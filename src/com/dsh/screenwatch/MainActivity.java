@@ -34,7 +34,10 @@ import android.widget.CompoundButton;
 import android.widget.FrameLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.SeekBar;
+import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -79,6 +82,11 @@ public class MainActivity extends Activity {
     private int accent = 0xFFFF6A00;
     private TextView themePreview;
     private TextView cloudAppState;
+    private TextView swipeState;
+    private boolean swipeEnabled;
+    private int swipeIntervalMin = 10;
+    private int swipeCount = 2;
+    private int swipeDirection;
     private TextView titleView;
     private View homeView;
     private View settingsView;
@@ -114,6 +122,10 @@ public class MainActivity extends Activity {
         ocrThreshold = Math.max(10, Math.min(90, prefs.getInt("ocr_threshold", 30)));
         alertMode = Math.max(0, Math.min(2, prefs.getInt("alert_mode", 0)));
         firstDelaySec = Math.max(0, Math.min(60, prefs.getInt("first_delay_sec", 2)));
+        swipeEnabled = prefs.getBoolean("swipe_enabled", false);
+        swipeIntervalMin = Math.max(1, Math.min(60, prefs.getInt("swipe_interval_min", 10)));
+        swipeCount = Math.max(1, Math.min(5, prefs.getInt("swipe_count", 2)));
+        swipeDirection = Math.max(0, Math.min(2, prefs.getInt("swipe_direction", 0)));
         accent = prefs.getInt("accent_color", 0xFFFF6A00);
         setContentView(buildUi());
     }
@@ -125,6 +137,7 @@ public class MainActivity extends Activity {
         refreshMusic();
         refreshRunState();
         refreshCloudApp();
+        refreshSwipeState();
         if (statsReceiver == null) {
             statsReceiver = new BroadcastReceiver() {
                 @Override
@@ -359,6 +372,123 @@ public class MainActivity extends Activity {
         widgetCard.addView(widgetTip);
         root.addView(widgetCard);
 
+        // ---- anti-idle swipe
+        LinearLayout swipeCard = card();
+        swipeCard.addView(sectionTitle("防下线滑动"));
+        swipeState = text("无障碍服务：检测中…", 12, MUTED, Typeface.NORMAL);
+        swipeState.setPadding(0, dp(2), 0, dp(6));
+        swipeCard.addView(swipeState);
+        Button openAccessibility = new Button(this);
+        openAccessibility.setText("打开无障碍设置");
+        openAccessibility.setAllCaps(false);
+        openAccessibility.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            } catch (Throwable t) {
+                toast("请到系统设置 → 无障碍 里开启本应用");
+            }
+        });
+        swipeCard.addView(openAccessibility, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+
+        Switch swipeSwitch = new Switch(this);
+        swipeSwitch.setText("定时滑动屏幕（防下线）");
+        swipeSwitch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        swipeSwitch.setTextColor(TEXT);
+        swipeSwitch.setChecked(swipeEnabled);
+        swipeSwitch.setOnCheckedChangeListener((b, checked) -> {
+            swipeEnabled = checked;
+            prefs.edit().putBoolean("swipe_enabled", checked).apply();
+            if (checked && !SwipeAccessibilityService.isEnabled(this)) {
+                toast("还需要在无障碍设置里开启「云游戏助手」");
+            }
+            pushSwipeConfig();
+        });
+        swipeCard.addView(swipeSwitch);
+
+        TextView swipeIntervalLabel = text("滑动间隔：" + swipeIntervalMin + " 分钟", 14, TEXT, Typeface.BOLD);
+        swipeIntervalLabel.setPadding(0, dp(10), 0, 0);
+        swipeCard.addView(swipeIntervalLabel);
+        SeekBar swipeIntervalBar = new SeekBar(this);
+        swipeIntervalBar.setMax(59);
+        swipeIntervalBar.setProgress(swipeIntervalMin - 1);
+        swipeIntervalBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                swipeIntervalMin = progress + 1;
+                swipeIntervalLabel.setText("滑动间隔：" + swipeIntervalMin + " 分钟");
+                prefs.edit().putInt("swipe_interval_min", swipeIntervalMin).apply();
+                pushSwipeConfig();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        swipeCard.addView(swipeIntervalBar);
+
+        TextView swipeCountLabel = text("每次滑动：" + swipeCount + " 下", 14, TEXT, Typeface.BOLD);
+        swipeCountLabel.setPadding(0, dp(10), 0, 0);
+        swipeCard.addView(swipeCountLabel);
+        SeekBar swipeCountBar = new SeekBar(this);
+        swipeCountBar.setMax(4);
+        swipeCountBar.setProgress(swipeCount - 1);
+        swipeCountBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                swipeCount = progress + 1;
+                swipeCountLabel.setText("每次滑动：" + swipeCount + " 下");
+                prefs.edit().putInt("swipe_count", swipeCount).apply();
+                pushSwipeConfig();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        swipeCard.addView(swipeCountBar);
+
+        LinearLayout dirRow = new LinearLayout(this);
+        dirRow.setOrientation(LinearLayout.HORIZONTAL);
+        dirRow.setGravity(Gravity.CENTER_VERTICAL);
+        dirRow.setPadding(0, dp(10), 0, 0);
+        TextView dirLabel = text("滑动方向：", 14, TEXT, Typeface.BOLD);
+        dirRow.addView(dirLabel, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Spinner dirSpinner = new Spinner(this);
+        ArrayAdapter<String> dirAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, new String[]{"上下", "左右", "交替"});
+        dirAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        dirSpinner.setAdapter(dirAdapter);
+        dirSpinner.setSelection(swipeDirection);
+        dirSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                swipeDirection = position;
+                prefs.edit().putInt("swipe_direction", position).apply();
+                pushSwipeConfig();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+        dirRow.addView(dirSpinner);
+        swipeCard.addView(dirRow);
+
+        TextView swipeTip = text("需要无障碍权限；在悬浮球/监测服务运行期间生效，首次 15 秒后开始，之后按设定间隔滑动。", 12, MUTED, Typeface.NORMAL);
+        swipeTip.setPadding(0, dp(6), 0, dp(2));
+        swipeCard.addView(swipeTip);
+        root.addView(swipeCard);
+
         // ---- recognition advanced
         LinearLayout recogAdv = card();
         recogAdv.addView(sectionTitle("识别高级设置"));
@@ -553,7 +683,7 @@ public class MainActivity extends Activity {
         // ---- about / author
         LinearLayout about = card();
         about.addView(sectionTitle("关于"));
-        TextView ver = text("云游戏助手 v2.3.1 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
+        TextView ver = text("云游戏助手 v2.4.0 · 作者：理烧明", 13, MUTED, Typeface.NORMAL);
         ver.setPadding(0, dp(4), 0, dp(8));
         about.addView(ver);
         Button bili = new Button(this);
@@ -586,6 +716,7 @@ public class MainActivity extends Activity {
         refreshMusic();
         refreshRunState();
         refreshCloudApp();
+        refreshSwipeState();
     }
 
     private void showHome() {
@@ -758,6 +889,30 @@ public class MainActivity extends Activity {
         }
         musicState.setText("已选择：" + displayName(uri));
         musicState.setTextColor(GREEN);
+    }
+
+    private void refreshSwipeState() {
+        if (swipeState == null) {
+            return;
+        }
+        boolean on = SwipeAccessibilityService.isEnabled(this);
+        swipeState.setText(on ? "无障碍服务：已开启" : "无障碍服务：未开启（点上面按钮启用）");
+        swipeState.setTextColor(on ? GREEN : RED);
+    }
+
+    private void pushSwipeConfig() {
+        if (!ScreenWatchService.isAlive()) {
+            return;
+        }
+        try {
+            startService(new Intent(this, ScreenWatchService.class)
+                    .setAction(ScreenWatchService.ACTION_SWIPE_CONFIG)
+                    .putExtra(ScreenWatchService.EXTRA_SWIPE_ENABLED, swipeEnabled)
+                    .putExtra(ScreenWatchService.EXTRA_SWIPE_INTERVAL_MIN, swipeIntervalMin)
+                    .putExtra(ScreenWatchService.EXTRA_SWIPE_COUNT, swipeCount)
+                    .putExtra(ScreenWatchService.EXTRA_SWIPE_DIRECTION, swipeDirection));
+        } catch (Throwable ignored) {
+        }
     }
 
     private void refreshCloudApp() {
